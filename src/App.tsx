@@ -3,9 +3,11 @@ import "@xyflow/react/dist/style.css";
 import {
   Background,
   Controls,
+  Handle,
   MarkerType,
   MiniMap,
   Panel,
+  Position,
   ReactFlow,
   type Edge,
   type Node,
@@ -410,6 +412,16 @@ function ArtifactNode({ data }: NodeProps<Node<ArtifactNodeData>>) {
 
   return (
     <article className={`artifact-node status-${artifact.status}`}>
+      <Handle
+        className="artifact-handle"
+        type="target"
+        position={Position.Left}
+      />
+      <Handle
+        className="artifact-handle"
+        type="source"
+        position={Position.Right}
+      />
       <button
         className="node-select-button"
         type="button"

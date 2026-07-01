@@ -222,6 +222,7 @@ button:disabled {
 }
 
 .artifact-node {
+  position: relative;
   width: 238px;
   padding: 12px;
   border: 1px solid rgba(148, 163, 184, 0.36);
@@ -230,6 +231,13 @@ button:disabled {
   color: var(--color-text);
   text-align: left;
   box-shadow: 0 14px 35px rgba(0, 0, 0, 0.28);
+}
+
+.artifact-handle {
+  width: 9px;
+  height: 9px;
+  border: 1px solid rgba(103, 232, 249, 0.75);
+  background: #071019;
 }
 
 .artifact-node h3 {
