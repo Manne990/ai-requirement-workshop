@@ -5,7 +5,6 @@ import {
   Controls,
   Handle,
   MarkerType,
-  MiniMap,
   Panel,
   Position,
   ReactFlow,
@@ -246,13 +245,6 @@ function App() {
               proOptions={{ hideAttribution: true }}
             >
               <Background gap={22} color="rgba(255,255,255,0.08)" />
-              <MiniMap
-                nodeBorderRadius={8}
-                nodeColor={(node) => {
-                  const artifact = (node.data as ArtifactNodeData).artifact;
-                  return statusColor(artifact.status);
-                }}
-              />
               <Controls position="bottom-left" />
               <Panel position="top-left" className="canvas-panel">
                 <span>{acceptedCount} accepted</span>
@@ -631,13 +623,6 @@ function shortArtifactName(artifact?: WorkshopArtifact) {
   return artifact.title.length > 22
     ? `${artifact.title.slice(0, 19)}...`
     : artifact.title;
-}
-
-function statusColor(status: ArtifactStatus) {
-  if (status === "accepted") return "#4ade80";
-  if (status === "parked") return "#fbbf24";
-  if (status === "rejected") return "#fb7185";
-  return "#38bdf8";
 }
 
 export default App;

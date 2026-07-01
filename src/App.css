@@ -209,6 +209,45 @@ button:disabled {
     linear-gradient(135deg, rgba(14, 22, 34, 0.78), rgba(6, 10, 15, 0.94));
 }
 
+.canvas-surface .react-flow__node {
+  font-family: var(--font-sans);
+}
+
+.canvas-surface .react-flow__controls {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: rgba(5, 10, 14, 0.9);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.34);
+}
+
+.canvas-surface .react-flow__controls-button {
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
+  background: rgba(5, 10, 14, 0.88);
+  color: var(--color-text);
+  opacity: 1;
+}
+
+.canvas-surface .react-flow__controls-button:hover:not(:disabled) {
+  background: rgba(15, 23, 42, 0.96);
+}
+
+.canvas-surface .react-flow__controls-button:last-child {
+  border-bottom: 0;
+}
+
+.canvas-surface .react-flow__controls-button svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+}
+
 .canvas-panel {
   display: flex;
   align-items: center;
