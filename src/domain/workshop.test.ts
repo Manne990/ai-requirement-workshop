@@ -104,6 +104,30 @@ describe("workshop domain", () => {
     ).toBe(true);
   });
 
+  it("does not repeat the dashboard user question after the human answers it", () => {
+    const first = submitHumanMessage(
+      createInitialWorkshopSession("2026-07-01T10:00:00.000Z"),
+      "Här på SOS-alarm behöver vi bygga ett nytt system som övervakar larm som vi sålt till våra kunder. Alla produkter är uppkopplade över 4G och data hamnar i en inprem SQL Server. Vi behöver visa data i en dashboard både som översikt över alla kunders system och för en enskild kunds.",
+      "2026-07-01T10:01:00.000Z",
+    );
+
+    const firstQuestion = first.messages.at(-1)?.body ?? "";
+    expect(firstQuestion).toContain("Vilka användare ska dashboarden");
+
+    const second = submitHumanMessage(
+      first,
+      "SOS-alarms personal som jobbar med övervakning.",
+      "2026-07-01T10:02:00.000Z",
+    );
+    const secondQuestion = second.messages.at(-1)?.body ?? "";
+
+    expect(secondQuestion).not.toContain("Vilka användare ska dashboarden");
+    expect(secondQuestion).toContain("Vilka larmstatusar eller avvikelser");
+    expect(
+      second.artifacts.some((artifact) => artifact.title === "Möjlig aktör"),
+    ).toBe(true);
+  });
+
   it("ignores blank human input without mutating the session", () => {
     const session = createInitialWorkshopSession("2026-07-01T10:00:00.000Z");
 

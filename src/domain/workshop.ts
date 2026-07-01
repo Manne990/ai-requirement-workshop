@@ -241,6 +241,7 @@ export function submitHumanMessage(
   );
   const allNewArtifacts = [...artifacts, ...specialistArtifacts];
   const facilitatorQuestion = selectFacilitatorQuestion(
+    session,
     trimmed,
     allNewArtifacts,
     language,
@@ -432,6 +433,12 @@ function createArtifactsFromHumanInput(
       "operatör",
       "handläggare",
       "medborgare",
+      "personal",
+      "medarbetare",
+      "team",
+      "roll",
+      "staff",
+      "employee",
     ])
   ) {
     artifacts.push({
@@ -714,10 +721,18 @@ function buildFacilitatorResponse(
   const specialistCount = specialistArtifacts.length;
 
   if (language === "sv") {
-    return `Jag har fångat detta på canvasen som ${artifactSummary}. Specialistperspektiven har lagt ${specialistCount} underlag i bakgrunden. Nästa fråga: ${question}`;
+    const specialistSummary =
+      specialistCount > 0
+        ? ` Specialistperspektiven har lagt ${specialistCount} underlag i bakgrunden.`
+        : "";
+    return `Jag har fångat detta på canvasen som ${artifactSummary}.${specialistSummary} Nästa fråga: ${question}`;
   }
 
-  return `I captured this on the canvas as ${artifactSummary}. The specialist perspectives added ${specialistCount} supporting item${specialistCount === 1 ? "" : "s"} in the background. Next question: ${question}`;
+  const specialistSummary =
+    specialistCount > 0
+      ? ` The specialist perspectives added ${specialistCount} supporting item${specialistCount === 1 ? "" : "s"} in the background.`
+      : "";
+  return `I captured this on the canvas as ${artifactSummary}.${specialistSummary} Next question: ${question}`;
 }
 
 function artifactTypeLabel(type: ArtifactType, language: WorkshopLanguage) {
@@ -750,33 +765,114 @@ function artifactTypeLabel(type: ArtifactType, language: WorkshopLanguage) {
 }
 
 function selectFacilitatorQuestion(
+  session: WorkshopSession,
   body: string,
   artifacts: WorkshopArtifact[],
   language: WorkshopLanguage,
 ) {
+  const dashboardQuestionOrder: FacilitatorQuestionKey[] = [
+    "dashboard-users",
+    "dashboard-signals",
+    "customer-detail",
+    "data-freshness",
+    "verification",
+  ];
+
   if (
-    containsAny(body, [
+    containsAny(conversationText(session, body), [
       "dashboard",
       "översikt",
       "kund",
       "customer",
       "larm",
       "alarm",
+      "sensor",
+      "övervakning",
+      "monitoring",
     ])
   ) {
-    return language === "sv"
-      ? "Vilka användare ska dashboarden främst hjälpa först: SOS Alarms interna övervakning, kunden själv, eller båda med olika vyer?"
-      : "Which users should the dashboard help first: internal monitoring, the customer, or both with different views?";
+    return nextUnaskedQuestion(session, dashboardQuestionOrder, language);
   }
 
   const question = artifacts.find((artifact) => artifact.type === "question");
-  if (question) {
+  if (question && !hasQuestionBeenAsked(session, question.content)) {
     return question.content;
   }
 
-  return language === "sv"
-    ? "Vem påverkas mest av detta, och vilket konkret beslut ska systemet hjälpa dem att fatta?"
-    : "Who is most affected by this, and what concrete decision should the system help them make?";
+  return nextUnaskedQuestion(
+    session,
+    ["affected-decision", "verification"],
+    language,
+  );
+}
+
+type FacilitatorQuestionKey =
+  | "dashboard-users"
+  | "dashboard-signals"
+  | "customer-detail"
+  | "data-freshness"
+  | "verification"
+  | "affected-decision";
+
+function nextUnaskedQuestion(
+  session: WorkshopSession,
+  keys: FacilitatorQuestionKey[],
+  language: WorkshopLanguage,
+) {
+  const questions = facilitatorQuestions(language);
+  const nextKey =
+    keys.find((key) => !hasQuestionBeenAsked(session, questions[key])) ??
+    keys[keys.length - 1];
+
+  return questions[nextKey];
+}
+
+function hasQuestionBeenAsked(session: WorkshopSession, question: string) {
+  return session.messages.some(
+    (message) =>
+      message.participantId === participantIds.facilitator &&
+      message.body.includes(question),
+  );
+}
+
+function conversationText(session: WorkshopSession, latestBody: string) {
+  return `${session.messages.map((message) => message.body).join(" ")} ${session.artifacts
+    .map((artifact) => `${artifact.title} ${artifact.content}`)
+    .join(" ")} ${latestBody}`;
+}
+
+function facilitatorQuestions(language: WorkshopLanguage) {
+  if (language === "sv") {
+    return {
+      "dashboard-users":
+        "Vilka användare ska dashboarden främst hjälpa först: SOS Alarms interna övervakning, kunden själv, eller båda med olika vyer?",
+      "dashboard-signals":
+        "Vilka larmstatusar eller avvikelser måste synas direkt i översikten för att personalen ska kunna agera?",
+      "customer-detail":
+        "När användaren går in på en enskild kund, vilka detaljer behöver de se som inte ska visas i totalöversikten?",
+      "data-freshness":
+        "Hur färsk måste datan vara för att dashboarden ska vara operativt användbar?",
+      verification:
+        "Vilket observerbart beteende visar att dashboarden faktiskt löser problemet?",
+      "affected-decision":
+        "Vem påverkas mest av detta, och vilket konkret beslut ska systemet hjälpa dem att fatta?",
+    } satisfies Record<FacilitatorQuestionKey, string>;
+  }
+
+  return {
+    "dashboard-users":
+      "Which users should the dashboard help first: internal monitoring, the customer, or both with different views?",
+    "dashboard-signals":
+      "Which alarm states or exceptions must be visible immediately in the overview so staff can act?",
+    "customer-detail":
+      "When the user opens one customer, which details do they need that should not appear in the total overview?",
+    "data-freshness":
+      "How fresh does the data need to be for the dashboard to be operationally useful?",
+    verification:
+      "What observable behavior proves that the dashboard actually solves the problem?",
+    "affected-decision":
+      "Who is most affected by this, and what concrete decision should the system help them make?",
+  } satisfies Record<FacilitatorQuestionKey, string>;
 }
 
 function createLinksForArtifacts(
@@ -965,6 +1061,15 @@ function extractActorHint(body: string, language: WorkshopLanguage) {
     return language === "sv"
       ? "Kund eller kundansvarig roll behöver förtydligas."
       : "Customer or customer-facing role should be clarified.";
+  if (
+    lower.includes("personal") ||
+    lower.includes("medarbetare") ||
+    lower.includes("staff") ||
+    lower.includes("employee")
+  )
+    return language === "sv"
+      ? "Intern personal som påverkas av systemets övervakning och beslut."
+      : "Internal staff affected by the monitoring and decisions in the system.";
   if (lower.includes("user") || lower.includes("användare"))
     return language === "sv"
       ? "En namngiven användargrupp behöver förtydligas."
