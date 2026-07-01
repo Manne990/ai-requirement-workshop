@@ -23,7 +23,7 @@ describe("workshop domain", () => {
     });
   });
 
-  it("turns a human contribution into canvas artifacts and specialist questions", () => {
+  it("turns a human contribution into canvas artifacts and one facilitator question", () => {
     const session = createInitialWorkshopSession("2026-07-01T10:00:00.000Z");
     const next = submitHumanMessage(
       session,
@@ -35,8 +35,14 @@ describe("workshop domain", () => {
       next.messages.some((message) => message.kind === "human-input"),
     ).toBe(true);
     expect(
-      next.messages.some((message) => message.kind === "agent-suggestion"),
-    ).toBe(true);
+      next.messages.filter((message) => message.kind === "agent-suggestion"),
+    ).toHaveLength(0);
+    expect(
+      next.messages.filter(
+        (message) => message.kind === "facilitator-guidance",
+      ),
+    ).toHaveLength(1);
+    expect(next.messages.at(-1)?.body).toContain("Next question:");
     expect(
       next.artifacts.some((artifact) => artifact.type === "requirement"),
     ).toBe(true);
@@ -48,16 +54,16 @@ describe("workshop domain", () => {
     ).toBe(true);
   });
 
-  it("activates all V1 specialist perspectives from workshop state signals", () => {
+  it("captures all V1 specialist perspectives as canvas artifacts", () => {
     const next = submitHumanMessage(
       createInitialWorkshopSession("2026-07-01T10:00:00.000Z"),
       "A user journey for SOS operators needs a system integration and data flow that should improve service value, create a decision rule, and flag security risk.",
       "2026-07-01T10:01:00.000Z",
     );
 
-    const specialistIds = next.messages
-      .filter((message) => message.kind === "agent-suggestion")
-      .map((message) => message.participantId);
+    const specialistIds = next.artifacts
+      .filter((artifact) => artifact.createdBy.startsWith("agent-"))
+      .map((artifact) => artifact.createdBy);
 
     expect(specialistIds).toEqual(
       expect.arrayContaining([
@@ -81,6 +87,25 @@ describe("workshop domain", () => {
         "goal",
       ]),
     );
+  });
+
+  it("answers in Swedish when the human writes in Swedish", () => {
+    const next = submitHumanMessage(
+      createInitialWorkshopSession("2026-07-01T10:00:00.000Z"),
+      "Vi behöver bygga ett system som övervakar kunders larm och visar data i en dashboard.",
+      "2026-07-01T10:01:00.000Z",
+    );
+
+    expect(next.messages.at(-1)?.body).toContain("Nästa fråga:");
+    expect(next.messages.at(-1)?.body).toContain("Vilka användare");
+    expect(
+      next.artifacts.some((artifact) => artifact.title === "Kravkandidat"),
+    ).toBe(true);
+    expect(
+      next.artifacts.some(
+        (artifact) => artifact.title === "Integrationsantagande",
+      ),
+    ).toBe(true);
   });
 
   it("ignores blank human input without mutating the session", () => {

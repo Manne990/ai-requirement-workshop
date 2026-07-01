@@ -29,6 +29,8 @@ export type MessageKind =
 export type VisualizationMode =
   "process" | "journey" | "requirements" | "risks";
 
+type WorkshopLanguage = "en" | "sv";
+
 export type SourceRef = {
   messageId?: string;
   artifactId?: string;
@@ -247,6 +249,7 @@ export function submitHumanMessage(
   if (!trimmed) {
     return session;
   }
+  const language = detectLanguage(trimmed);
 
   const humanMessage: WorkshopMessage = {
     id: createId("message", session.messages.length + 1),
@@ -262,29 +265,43 @@ export function submitHumanMessage(
     humanMessage.id,
     createdAt,
     session,
+    language,
   );
   const artifactIds = artifacts.map((artifact) => artifact.id);
   humanMessage.relatedArtifactIds = artifactIds;
 
+  const specialistArtifacts = createSpecialistArtifacts(
+    trimmed,
+    artifacts,
+    createdAt,
+    session,
+    language,
+  );
+  const allNewArtifacts = [...artifacts, ...specialistArtifacts];
+  const facilitatorQuestion = selectFacilitatorQuestion(
+    trimmed,
+    allNewArtifacts,
+    language,
+  );
   const facilitatorMessage: WorkshopMessage = {
     id: createId("message", session.messages.length + 2),
     participantId: participantIds.facilitator,
     kind: "facilitator-guidance",
     createdAt,
-    relatedArtifactIds: artifactIds,
-    body: buildFacilitatorResponse(trimmed, artifacts),
+    relatedArtifactIds: [
+      ...artifactIds,
+      ...specialistArtifacts
+        .filter((artifact) => artifact.type === "question")
+        .slice(0, 1)
+        .map((artifact) => artifact.id),
+    ],
+    body: buildFacilitatorResponse(
+      artifacts,
+      specialistArtifacts,
+      facilitatorQuestion,
+      language,
+    ),
   };
-
-  const specialistMessages = createSpecialistSuggestions(
-    trimmed,
-    artifacts,
-    createdAt,
-    session,
-  );
-  const specialistArtifacts = specialistMessages.flatMap(
-    (suggestion) => suggestion.artifacts,
-  );
-  const allNewArtifacts = [...artifacts, ...specialistArtifacts];
 
   const links = createLinksForArtifacts(
     session.artifacts,
@@ -298,18 +315,13 @@ export function submitHumanMessage(
 
   return {
     ...session,
-    messages: [
-      ...session.messages,
-      humanMessage,
-      facilitatorMessage,
-      ...specialistMessages.map(({ message }) => message),
-    ],
+    messages: [...session.messages, humanMessage, facilitatorMessage],
     artifacts: [...session.artifacts, ...allNewArtifacts],
     links: [...session.links, ...links],
     selectedArtifactId,
     participants: updateParticipantStatuses(
       session.participants,
-      specialistMessages.length > 0,
+      specialistArtifacts.length > 0,
     ),
     updatedAt: createdAt,
   };
@@ -430,15 +442,17 @@ function createArtifactsFromHumanInput(
   messageId: string,
   createdAt: string,
   session: WorkshopSession,
+  language: WorkshopLanguage,
 ): WorkshopArtifact[] {
   const nextIndex = session.artifacts.length + 1;
   const compact = compactSentence(body);
+  const copy = textFor(language);
 
   const artifacts: WorkshopArtifact[] = [
     {
       id: createId("artifact-problem", nextIndex),
       type: "problem",
-      title: inferProblemTitle(body),
+      title: inferProblemTitle(body, language),
       content: compact,
       status: "draft",
       createdBy: participantIds.facilitator,
@@ -461,8 +475,8 @@ function createArtifactsFromHumanInput(
     artifacts.push({
       id: createId("artifact-actor", nextIndex + artifacts.length),
       type: "actor",
-      title: "Potential actor",
-      content: extractActorHint(body),
+      title: copy.potentialActorTitle,
+      content: extractActorHint(body, language),
       status: "draft",
       createdBy: participantIds.facilitator,
       updatedAt: createdAt,
@@ -477,8 +491,11 @@ function createArtifactsFromHumanInput(
     artifacts.push({
       id: createId("artifact-requirement", nextIndex + artifacts.length),
       type: "requirement",
-      title: "Requirement candidate",
-      content: `The future solution should support: ${compact}`,
+      title: copy.requirementCandidateTitle,
+      content:
+        language === "sv"
+          ? `Den framtida lösningen behöver stödja: ${compact}`
+          : `The future solution should support: ${compact}`,
       status: "draft",
       createdBy: participantIds.facilitator,
       updatedAt: createdAt,
@@ -500,8 +517,11 @@ function createArtifactsFromHumanInput(
     artifacts.push({
       id: createId("artifact-flow-step", nextIndex + artifacts.length),
       type: "flow-step",
-      title: "Process step candidate",
-      content: `Potential process step to map: ${compact}`,
+      title: copy.processStepTitle,
+      content:
+        language === "sv"
+          ? `Möjligt processsteg att kartlägga: ${compact}`
+          : `Potential process step to map: ${compact}`,
       status: "draft",
       createdBy: participantIds.facilitator,
       updatedAt: createdAt,
@@ -514,8 +534,11 @@ function createArtifactsFromHumanInput(
     artifacts.push({
       id: createId("artifact-decision", nextIndex + artifacts.length),
       type: "decision",
-      title: "Decision candidate",
-      content: `Decision or policy signal to confirm: ${compact}`,
+      title: copy.decisionCandidateTitle,
+      content:
+        language === "sv"
+          ? `Besluts- eller policysignal att bekräfta: ${compact}`
+          : `Decision or policy signal to confirm: ${compact}`,
       status: "draft",
       createdBy: participantIds.facilitator,
       updatedAt: createdAt,
@@ -538,8 +561,11 @@ function createArtifactsFromHumanInput(
     artifacts.push({
       id: createId("artifact-risk", nextIndex + artifacts.length),
       type: "risk",
-      title: "Risk to examine",
-      content: `Potential risk signaled by the workshop owner: ${compact}`,
+      title: copy.riskTitle,
+      content:
+        language === "sv"
+          ? `Möjlig risk som workshopägaren signalerar: ${compact}`
+          : `Potential risk signaled by the workshop owner: ${compact}`,
       status: "draft",
       createdBy: participantIds.facilitator,
       updatedAt: createdAt,
@@ -551,43 +577,30 @@ function createArtifactsFromHumanInput(
   return artifacts;
 }
 
-function createSpecialistSuggestions(
+function createSpecialistArtifacts(
   body: string,
   sourceArtifacts: WorkshopArtifact[],
   createdAt: string,
   session: WorkshopSession,
-): { message: WorkshopMessage; artifacts: WorkshopArtifact[] }[] {
-  const baseIndex = session.messages.length + 3;
+  language: WorkshopLanguage,
+): WorkshopArtifact[] {
   const artifactBaseIndex =
     session.artifacts.length + sourceArtifacts.length + 1;
-  const suggestions: {
-    message: WorkshopMessage;
-    artifacts: WorkshopArtifact[];
-  }[] = [];
+  const artifacts: WorkshopArtifact[] = [];
+  const copy = textFor(language);
 
   if (sourceArtifacts.some((artifact) => artifact.type === "requirement")) {
     const artifact = suggestionArtifact({
       id: createId("artifact-quality-question", artifactBaseIndex),
       type: "question",
-      title: "How will this be verified?",
-      content:
-        "What observable behavior proves that this requirement is satisfied?",
+      title: copy.verificationQuestionTitle,
+      content: copy.verificationQuestion,
       participantId: participantIds.quality,
       sourceArtifactId: sourceArtifacts[0]?.id,
       createdAt,
       tags: ["testability"],
     });
-    suggestions.push({
-      message: {
-        id: createId("message-quality", baseIndex + suggestions.length),
-        participantId: participantIds.quality,
-        kind: "agent-suggestion",
-        body: "I see a requirement candidate. Before it is accepted, define the observable acceptance evidence.",
-        createdAt,
-        relatedArtifactIds: [artifact.id],
-      },
-      artifacts: [artifact],
-    });
+    artifacts.push(artifact);
   }
 
   if (
@@ -598,45 +611,38 @@ function createSpecialistSuggestions(
       "data",
       "journal",
       "register",
+      "sql",
+      "4g",
+      "sensor",
+      "kamera",
+      "dashboard",
     ])
   ) {
     const artifact = suggestionArtifact({
       id: createId(
         "artifact-technical-assumption",
-        artifactBaseIndex + suggestions.length,
+        artifactBaseIndex + artifacts.length,
       ),
       type: "assumption",
-      title: "Integration assumption",
-      content:
-        "The workshop likely depends on one or more existing systems or data sources.",
+      title: copy.integrationAssumptionTitle,
+      content: copy.integrationAssumption,
       participantId: participantIds.technical,
       sourceArtifactId: sourceArtifacts[0]?.id,
       createdAt,
       tags: ["integration"],
     });
-    suggestions.push({
-      message: {
-        id: createId("message-technical", baseIndex + suggestions.length),
-        participantId: participantIds.technical,
-        kind: "agent-suggestion",
-        body: "I recommend making system boundaries and data ownership explicit before detailed requirements are accepted.",
-        createdAt,
-        relatedArtifactIds: [artifact.id],
-      },
-      artifacts: [artifact],
-    });
+    artifacts.push(artifact);
   }
 
   if (sourceArtifacts.some((artifact) => artifact.type === "risk")) {
     const artifact = suggestionArtifact({
       id: createId(
         "artifact-risk-question",
-        artifactBaseIndex + suggestions.length,
+        artifactBaseIndex + artifacts.length,
       ),
       type: "question",
-      title: "Risk severity question",
-      content:
-        "What is the worst credible operational consequence if this assumption is wrong?",
+      title: copy.riskQuestionTitle,
+      content: copy.riskQuestion,
       participantId: participantIds.risk,
       sourceArtifactId: sourceArtifacts.find(
         (candidate) => candidate.type === "risk",
@@ -644,17 +650,7 @@ function createSpecialistSuggestions(
       createdAt,
       tags: ["risk"],
     });
-    suggestions.push({
-      message: {
-        id: createId("message-risk", baseIndex + suggestions.length),
-        participantId: participantIds.risk,
-        kind: "agent-suggestion",
-        body: "This risk needs severity and mitigation before it becomes part of a delivery recommendation.",
-        createdAt,
-        relatedArtifactIds: [artifact.id],
-      },
-      artifacts: [artifact],
-    });
+    artifacts.push(artifact);
   }
 
   if (
@@ -671,12 +667,11 @@ function createSpecialistSuggestions(
     const artifact = suggestionArtifact({
       id: createId(
         "artifact-ux-question",
-        artifactBaseIndex + suggestions.length,
+        artifactBaseIndex + artifacts.length,
       ),
       type: "question",
-      title: "User journey question",
-      content:
-        "Which moment in the user's workflow should become easier, faster, or safer?",
+      title: copy.userJourneyQuestionTitle,
+      content: copy.userJourneyQuestion,
       participantId: participantIds.ux,
       sourceArtifactId: sourceArtifacts.find(
         (candidate) => candidate.type === "actor",
@@ -684,50 +679,39 @@ function createSpecialistSuggestions(
       createdAt,
       tags: ["ux"],
     });
-    suggestions.push({
-      message: {
-        id: createId("message-ux", baseIndex + suggestions.length),
-        participantId: participantIds.ux,
-        kind: "agent-suggestion",
-        body: "I recommend naming the user moment and desired behavior change before locking requirements.",
-        createdAt,
-        relatedArtifactIds: [artifact.id],
-      },
-      artifacts: [artifact],
-    });
+    artifacts.push(artifact);
   }
 
   if (
-    containsAny(body, ["mål", "effekt", "nytta", "value", "goal", "benefit"])
+    containsAny(body, [
+      "mål",
+      "effekt",
+      "nytta",
+      "value",
+      "goal",
+      "benefit",
+      "kund",
+      "customer",
+      "översikt",
+    ])
   ) {
     const artifact = suggestionArtifact({
       id: createId(
         "artifact-business-goal",
-        artifactBaseIndex + suggestions.length,
+        artifactBaseIndex + artifacts.length,
       ),
       type: "goal",
-      title: "Value hypothesis",
-      content:
-        "The expected benefit should be stated as a measurable change in service outcome.",
+      title: copy.valueHypothesisTitle,
+      content: copy.valueHypothesis,
       participantId: participantIds.business,
       sourceArtifactId: sourceArtifacts[0]?.id,
       createdAt,
       tags: ["value"],
     });
-    suggestions.push({
-      message: {
-        id: createId("message-business", baseIndex + suggestions.length),
-        participantId: participantIds.business,
-        kind: "agent-suggestion",
-        body: "I suggest turning the intended value into a measurable outcome before prioritizing requirements.",
-        createdAt,
-        relatedArtifactIds: [artifact.id],
-      },
-      artifacts: [artifact],
-    });
+    artifacts.push(artifact);
   }
 
-  return suggestions;
+  return artifacts;
 }
 
 function suggestionArtifact(args: {
@@ -756,16 +740,81 @@ function suggestionArtifact(args: {
   };
 }
 
-function buildFacilitatorResponse(body: string, artifacts: WorkshopArtifact[]) {
+function buildFacilitatorResponse(
+  artifacts: WorkshopArtifact[],
+  specialistArtifacts: WorkshopArtifact[],
+  question: string,
+  language: WorkshopLanguage,
+) {
   const artifactSummary = artifacts
-    .map((artifact) => artifact.type.replace("-", " "))
+    .map((artifact) => artifactTypeLabel(artifact.type, language))
     .join(", ");
+  const specialistCount = specialistArtifacts.length;
 
-  if (body.length < 80) {
-    return `I captured this as ${artifactSummary}. I need one more detail: who is affected, and what change would count as a useful outcome?`;
+  if (language === "sv") {
+    return `Jag har fångat detta på canvasen som ${artifactSummary}. Specialistperspektiven har lagt ${specialistCount} underlag i bakgrunden. Nästa fråga: ${question}`;
   }
 
-  return `I captured ${artifacts.length} workshop artifact${artifacts.length === 1 ? "" : "s"} on the canvas: ${artifactSummary}. I will keep these as draft until you accept or refine them.`;
+  return `I captured this on the canvas as ${artifactSummary}. The specialist perspectives added ${specialistCount} supporting item${specialistCount === 1 ? "" : "s"} in the background. Next question: ${question}`;
+}
+
+function artifactTypeLabel(type: ArtifactType, language: WorkshopLanguage) {
+  const labels: Record<WorkshopLanguage, Record<ArtifactType, string>> = {
+    en: {
+      problem: "problem",
+      goal: "goal",
+      actor: "actor",
+      "flow-step": "flow step",
+      requirement: "requirement",
+      risk: "risk",
+      assumption: "assumption",
+      question: "question",
+      decision: "decision",
+    },
+    sv: {
+      problem: "problem",
+      goal: "mål",
+      actor: "aktör",
+      "flow-step": "processteg",
+      requirement: "krav",
+      risk: "risk",
+      assumption: "antagande",
+      question: "fråga",
+      decision: "beslut",
+    },
+  };
+
+  return labels[language][type];
+}
+
+function selectFacilitatorQuestion(
+  body: string,
+  artifacts: WorkshopArtifact[],
+  language: WorkshopLanguage,
+) {
+  if (
+    containsAny(body, [
+      "dashboard",
+      "översikt",
+      "kund",
+      "customer",
+      "larm",
+      "alarm",
+    ])
+  ) {
+    return language === "sv"
+      ? "Vilka användare ska dashboarden främst hjälpa först: SOS Alarms interna övervakning, kunden själv, eller båda med olika vyer?"
+      : "Which users should the dashboard help first: internal monitoring, the customer, or both with different views?";
+  }
+
+  const question = artifacts.find((artifact) => artifact.type === "question");
+  if (question) {
+    return question.content;
+  }
+
+  return language === "sv"
+    ? "Vem påverkas mest av detta, och vilket konkret beslut ska systemet hjälpa dem att fatta?"
+    : "Who is most affected by this, and what concrete decision should the system help them make?";
 }
 
 function createLinksForArtifacts(
@@ -841,27 +890,126 @@ function buildReportSection(
   };
 }
 
-function inferProblemTitle(body: string) {
-  if (containsAny(body, ["flöde", "flow", "process"])) {
-    return "Process or flow to understand";
+function detectLanguage(body: string): WorkshopLanguage {
+  const lower = body.toLowerCase();
+  if (/[åäö]/i.test(body)) {
+    return "sv";
   }
-  if (containsAny(body, ["app", "system", "verktyg", "tool"])) {
-    return "Digital system need";
+  if (
+    containsAny(lower, [
+      "och",
+      "att",
+      "som",
+      "behöver",
+      "ska",
+      "måste",
+      "kund",
+      "larm",
+      "övervaka",
+      "enskild",
+      "översikt",
+      "brandlarm",
+      "rörelsesensor",
+      "dörr",
+      "fönster",
+    ])
+  ) {
+    return "sv";
   }
-  return "Workshop problem statement";
+  return "en";
 }
 
-function extractActorHint(body: string) {
+function textFor(language: WorkshopLanguage) {
+  if (language === "sv") {
+    return {
+      potentialActorTitle: "Möjlig aktör",
+      requirementCandidateTitle: "Kravkandidat",
+      processStepTitle: "Processkandidat",
+      decisionCandidateTitle: "Beslutskandidat",
+      riskTitle: "Risk att undersöka",
+      verificationQuestionTitle: "Hur verifierar vi detta?",
+      verificationQuestion:
+        "Vilket observerbart beteende visar att kravet faktiskt är uppfyllt?",
+      integrationAssumptionTitle: "Integrationsantagande",
+      integrationAssumption:
+        "Workshopen verkar bero på ett eller flera befintliga system, datakällor eller ägarskap runt data.",
+      riskQuestionTitle: "Fråga om risknivå",
+      riskQuestion:
+        "Vilken är den värsta trovärdiga operativa konsekvensen om antagandet är fel?",
+      userJourneyQuestionTitle: "Fråga om användarresa",
+      userJourneyQuestion:
+        "Vilket ögonblick i användarens arbetsflöde ska bli enklare, snabbare eller säkrare?",
+      valueHypothesisTitle: "Nyttohypotes",
+      valueHypothesis:
+        "Den förväntade nyttan bör beskrivas som en mätbar förändring i tjänstens resultat.",
+    };
+  }
+
+  return {
+    potentialActorTitle: "Potential actor",
+    requirementCandidateTitle: "Requirement candidate",
+    processStepTitle: "Process step candidate",
+    decisionCandidateTitle: "Decision candidate",
+    riskTitle: "Risk to examine",
+    verificationQuestionTitle: "How will this be verified?",
+    verificationQuestion:
+      "What observable behavior proves that this requirement is satisfied?",
+    integrationAssumptionTitle: "Integration assumption",
+    integrationAssumption:
+      "The workshop likely depends on one or more existing systems, data sources, or data ownership boundaries.",
+    riskQuestionTitle: "Risk severity question",
+    riskQuestion:
+      "What is the worst credible operational consequence if this assumption is wrong?",
+    userJourneyQuestionTitle: "User journey question",
+    userJourneyQuestion:
+      "Which moment in the user's workflow should become easier, faster, or safer?",
+    valueHypothesisTitle: "Value hypothesis",
+    valueHypothesis:
+      "The expected benefit should be stated as a measurable change in service outcome.",
+  };
+}
+
+function inferProblemTitle(body: string, language: WorkshopLanguage) {
+  if (containsAny(body, ["flöde", "flow", "process"])) {
+    return language === "sv"
+      ? "Process eller flöde att förstå"
+      : "Process or flow to understand";
+  }
+  if (containsAny(body, ["app", "system", "verktyg", "tool"])) {
+    return language === "sv"
+      ? "Behov av digitalt system"
+      : "Digital system need";
+  }
+  return language === "sv"
+    ? "Problemformulering för workshopen"
+    : "Workshop problem statement";
+}
+
+function extractActorHint(body: string, language: WorkshopLanguage) {
   const lower = body.toLowerCase();
   if (lower.includes("operatör"))
-    return "Operator or control-room role affected by the system.";
+    return language === "sv"
+      ? "Operatör eller övervakande roll som påverkas av systemet."
+      : "Operator or control-room role affected by the system.";
   if (lower.includes("handläggare"))
-    return "Case handler or service employee affected by the system.";
+    return language === "sv"
+      ? "Handläggare eller tjänstemedarbetare som påverkas av systemet."
+      : "Case handler or service employee affected by the system.";
   if (lower.includes("medborgare"))
-    return "Citizen/end user affected by the service.";
+    return language === "sv"
+      ? "Medborgare eller slutanvändare som påverkas av tjänsten."
+      : "Citizen/end user affected by the service.";
+  if (lower.includes("kund"))
+    return language === "sv"
+      ? "Kund eller kundansvarig roll behöver förtydligas."
+      : "Customer or customer-facing role should be clarified.";
   if (lower.includes("user") || lower.includes("användare"))
-    return "A named user group should be clarified.";
-  return "Actor mentioned by the workshop owner; clarify role, goal, and context.";
+    return language === "sv"
+      ? "En namngiven användargrupp behöver förtydligas."
+      : "A named user group should be clarified.";
+  return language === "sv"
+    ? "Aktör nämnd av workshopägaren; förtydliga roll, mål och kontext."
+    : "Actor mentioned by the workshop owner; clarify role, goal, and context.";
 }
 
 function compactSentence(body: string) {

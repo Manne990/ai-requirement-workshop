@@ -28,7 +28,7 @@ describe("App", () => {
     expect(
       await screen.findAllByText(/requirement candidate/i),
     ).not.toHaveLength(0);
-    expect(screen.getByText(/how will this be verified/i)).toBeInTheDocument();
+    expect(screen.getByText(/next question/i)).toBeInTheDocument();
 
     const selectedPanel = screen.getByLabelText(
       /participants and selected artifact/i,

@@ -36,6 +36,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
 } from "react";
@@ -99,6 +100,7 @@ function App() {
     generateWorkshopReport(loadSession()),
   );
   const [isReportOpen, setIsReportOpen] = useState(false);
+  const messageListRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     window.localStorage.setItem(storageKey, JSON.stringify(session));
@@ -107,6 +109,14 @@ function App() {
   useEffect(() => {
     setReport(generateWorkshopReport(session));
   }, [session]);
+
+  useEffect(() => {
+    const messageList = messageListRef.current;
+    if (!messageList) {
+      return;
+    }
+    messageList.scrollTop = messageList.scrollHeight;
+  }, [session.messages.length]);
 
   const selectedArtifact = useMemo(
     () =>
@@ -276,7 +286,12 @@ function App() {
             <MessageSquare aria-hidden="true" size={22} />
           </div>
 
-          <div className="message-list" role="log" aria-live="polite">
+          <div
+            className="message-list"
+            role="log"
+            aria-live="polite"
+            ref={messageListRef}
+          >
             {session.messages.map((message) => {
               const participant = session.participants.find(
                 (candidate) => candidate.id === message.participantId,
