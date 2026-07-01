@@ -48,6 +48,41 @@ describe("workshop domain", () => {
     ).toBe(true);
   });
 
+  it("activates all V1 specialist perspectives from workshop state signals", () => {
+    const next = submitHumanMessage(
+      createInitialWorkshopSession("2026-07-01T10:00:00.000Z"),
+      "A user journey for SOS operators needs a system integration and data flow that should improve service value, create a decision rule, and flag security risk.",
+      "2026-07-01T10:01:00.000Z",
+    );
+
+    const specialistIds = next.messages
+      .filter((message) => message.kind === "agent-suggestion")
+      .map((message) => message.participantId);
+
+    expect(specialistIds).toEqual(
+      expect.arrayContaining([
+        "agent-business",
+        "agent-ux",
+        "agent-risk",
+        "agent-technical",
+        "agent-quality",
+      ]),
+    );
+    expect(next.artifacts.map((artifact) => artifact.type)).toEqual(
+      expect.arrayContaining([
+        "problem",
+        "actor",
+        "requirement",
+        "flow-step",
+        "decision",
+        "risk",
+        "assumption",
+        "question",
+        "goal",
+      ]),
+    );
+  });
+
   it("ignores blank human input without mutating the session", () => {
     const session = createInitialWorkshopSession("2026-07-01T10:00:00.000Z");
 

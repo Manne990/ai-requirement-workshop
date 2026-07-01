@@ -489,6 +489,43 @@ function createArtifactsFromHumanInput(
 
   if (
     containsAny(body, [
+      "flow",
+      "process",
+      "flöde",
+      "steg",
+      "handover",
+      "överlämning",
+    ])
+  ) {
+    artifacts.push({
+      id: createId("artifact-flow-step", nextIndex + artifacts.length),
+      type: "flow-step",
+      title: "Process step candidate",
+      content: `Potential process step to map: ${compact}`,
+      status: "draft",
+      createdBy: participantIds.facilitator,
+      updatedAt: createdAt,
+      source: { messageId, participantId: participantIds.human },
+      tags: ["process"],
+    });
+  }
+
+  if (containsAny(body, ["decision", "beslut", "policy", "rule", "regel"])) {
+    artifacts.push({
+      id: createId("artifact-decision", nextIndex + artifacts.length),
+      type: "decision",
+      title: "Decision candidate",
+      content: `Decision or policy signal to confirm: ${compact}`,
+      status: "draft",
+      createdBy: participantIds.facilitator,
+      updatedAt: createdAt,
+      source: { messageId, participantId: participantIds.human },
+      tags: ["decision"],
+    });
+  }
+
+  if (
+    containsAny(body, [
       "risk",
       "oro",
       "fel",
@@ -613,6 +650,46 @@ function createSpecialistSuggestions(
         participantId: participantIds.risk,
         kind: "agent-suggestion",
         body: "This risk needs severity and mitigation before it becomes part of a delivery recommendation.",
+        createdAt,
+        relatedArtifactIds: [artifact.id],
+      },
+      artifacts: [artifact],
+    });
+  }
+
+  if (
+    sourceArtifacts.some((artifact) => artifact.type === "actor") ||
+    containsAny(body, [
+      "journey",
+      "ux",
+      "user",
+      "användare",
+      "operatör",
+      "handläggare",
+    ])
+  ) {
+    const artifact = suggestionArtifact({
+      id: createId(
+        "artifact-ux-question",
+        artifactBaseIndex + suggestions.length,
+      ),
+      type: "question",
+      title: "User journey question",
+      content:
+        "Which moment in the user's workflow should become easier, faster, or safer?",
+      participantId: participantIds.ux,
+      sourceArtifactId: sourceArtifacts.find(
+        (candidate) => candidate.type === "actor",
+      )?.id,
+      createdAt,
+      tags: ["ux"],
+    });
+    suggestions.push({
+      message: {
+        id: createId("message-ux", baseIndex + suggestions.length),
+        participantId: participantIds.ux,
+        kind: "agent-suggestion",
+        body: "I recommend naming the user moment and desired behavior change before locking requirements.",
         createdAt,
         relatedArtifactIds: [artifact.id],
       },
