@@ -1,7 +1,10 @@
 .app-shell {
-  min-height: 100vh;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) clamp(112px, 18dvh, 172px);
+  overflow: hidden;
   background:
     linear-gradient(120deg, rgba(27, 67, 50, 0.72), transparent 34%),
     radial-gradient(
@@ -29,7 +32,8 @@
 }
 
 .detail-rail {
-  min-height: 132px;
+  min-height: 0;
+  overflow: hidden;
   border-width: 1px 0 0;
   background: rgba(8, 13, 18, 0.78);
   backdrop-filter: blur(18px);
@@ -120,8 +124,9 @@ button:disabled {
 .workspace-grid {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(560px, 1fr) minmax(360px, 420px);
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 28vw);
   gap: 16px;
+  overflow: hidden;
   padding: 16px;
 }
 
@@ -194,7 +199,7 @@ button:disabled {
 }
 
 .canvas-surface {
-  min-height: 520px;
+  min-height: 0;
   background:
     radial-gradient(
       circle at center,
@@ -397,8 +402,9 @@ button:disabled {
 .chat-composer textarea {
   width: 100%;
   box-sizing: border-box;
-  resize: vertical;
-  min-height: 106px;
+  resize: none;
+  min-height: 82px;
+  max-height: 18dvh;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   padding: 12px;
@@ -408,7 +414,9 @@ button:disabled {
 }
 
 .selected-artifact {
-  width: min(520px, 42vw);
+  flex: 0 1 min(520px, 32vw);
+  max-height: 100%;
+  overflow-y: auto;
   padding: 14px;
 }
 
@@ -426,17 +434,20 @@ button:disabled {
 }
 
 .participants-strip {
-  width: 100%;
+  flex: 1 1 auto;
+  width: auto;
   min-width: 0;
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(230px, 1fr);
+  max-width: 100%;
+  display: flex;
   gap: 10px;
   overflow-x: auto;
+  overflow-y: hidden;
   padding-bottom: 2px;
+  scrollbar-gutter: stable;
 }
 
 .participant-chip {
+  flex: 0 0 clamp(230px, 20vw, 340px);
   min-width: 0;
   min-height: 86px;
   display: grid;
@@ -532,30 +543,30 @@ button:disabled {
   color: var(--color-muted);
 }
 
-@media (max-width: 1020px) {
+@media (max-width: 600px) {
   .app-shell {
-    grid-template-rows: auto auto auto;
+    grid-template-rows: auto minmax(0, 1fr) clamp(112px, 18dvh, 172px);
   }
 
   .workspace-grid {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(240px, 0.9fr);
   }
 
   .canvas-surface {
-    min-height: 450px;
+    min-height: 0;
   }
 
   .detail-rail {
-    align-items: stretch;
-    flex-direction: column;
+    gap: 12px;
   }
 
   .selected-artifact {
-    width: auto;
+    flex-basis: min(360px, 38vw);
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 600px) {
   .topbar,
   .canvas-header,
   .chat-header {
@@ -577,7 +588,7 @@ button:disabled {
   }
 
   .canvas-surface {
-    min-height: 390px;
+    min-height: 0;
   }
 
   .artifact-node {

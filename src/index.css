@@ -25,19 +25,25 @@
 
 html {
   min-width: 320px;
+  height: 100%;
   min-height: 100%;
+  overflow: hidden;
   background: var(--color-bg);
 }
 
 body {
   min-width: 320px;
+  height: 100%;
   min-height: 100vh;
   margin: 0;
+  overflow: hidden;
   background: var(--color-bg);
 }
 
 #root {
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 a {
