@@ -184,7 +184,7 @@ export function createInitialWorkshopSession(
     participantId: participantIds.facilitator,
     kind: "welcome",
     createdAt,
-    relatedArtifactIds: ["artifact-workshop-goal", "artifact-open-question"],
+    relatedArtifactIds: [],
     body: "Welcome. Describe what digital system or service change you want to explore, and I will build a shared canvas while we talk. I will ask questions when something is unclear and invite specialist perspectives when they help.",
   };
 
@@ -193,47 +193,9 @@ export function createInitialWorkshopSession(
     title: "AI Requirement Workshop",
     participants: initialParticipants,
     messages: [welcomeMessage],
-    artifacts: [
-      {
-        id: "artifact-workshop-goal",
-        type: "goal",
-        title: "Workshop goal",
-        content:
-          "Turn an early idea into traceable requirements, risks, assumptions, and next steps.",
-        status: "accepted",
-        createdBy: participantIds.facilitator,
-        updatedAt: createdAt,
-        source: {
-          messageId: welcomeMessage.id,
-          participantId: participantIds.facilitator,
-        },
-        tags: ["scope"],
-      },
-      {
-        id: "artifact-open-question",
-        type: "question",
-        title: "Starting question",
-        content:
-          "What situation, user group, or operational problem should this workshop focus on?",
-        status: "draft",
-        createdBy: participantIds.facilitator,
-        updatedAt: createdAt,
-        source: {
-          messageId: welcomeMessage.id,
-          participantId: participantIds.facilitator,
-        },
-        tags: ["clarification"],
-      },
-    ],
-    links: [
-      {
-        id: "link-goal-question",
-        sourceArtifactId: "artifact-workshop-goal",
-        targetArtifactId: "artifact-open-question",
-        label: "needs context",
-      },
-    ],
-    selectedArtifactId: "artifact-workshop-goal",
+    artifacts: [],
+    links: [],
+    selectedArtifactId: undefined,
     visualizationMode: "process",
     followDiscussion: true,
     updatedAt: createdAt,

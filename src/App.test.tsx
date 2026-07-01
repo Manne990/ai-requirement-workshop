@@ -30,6 +30,9 @@ describe("App", () => {
     ).not.toHaveLength(0);
     expect(screen.getByText(/next question/i)).toBeInTheDocument();
 
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /requirement candidate/i })[0],
+    );
     const selectedPanel = screen.getByLabelText(
       /participants and selected artifact/i,
     );
@@ -40,7 +43,9 @@ describe("App", () => {
 
     const report = screen.getByRole("dialog", { name: /workshop report/i });
     expect(within(report).getByText(/generated output/i)).toBeInTheDocument();
-    expect(within(report).getByText(/context and goals/i)).toBeInTheDocument();
+    expect(
+      within(report).getByText(/requirement candidates/i),
+    ).toBeInTheDocument();
   });
 
   it("restores an in-progress workshop from local storage after remount", async () => {

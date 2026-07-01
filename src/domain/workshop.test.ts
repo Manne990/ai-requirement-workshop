@@ -9,18 +9,14 @@ import {
 } from "./workshop";
 
 describe("workshop domain", () => {
-  it("starts with a facilitator welcome and traceable canvas artifacts", () => {
+  it("starts with a facilitator welcome and an empty canvas", () => {
     const session = createInitialWorkshopSession("2026-07-01T10:00:00.000Z");
 
     expect(session.messages[0]?.kind).toBe("welcome");
-    expect(session.artifacts.map((artifact) => artifact.type)).toEqual([
-      "goal",
-      "question",
-    ]);
-    expect(session.links[0]).toMatchObject({
-      sourceArtifactId: "artifact-workshop-goal",
-      targetArtifactId: "artifact-open-question",
-    });
+    expect(session.messages[0]?.relatedArtifactIds).toEqual([]);
+    expect(session.artifacts).toEqual([]);
+    expect(session.links).toEqual([]);
+    expect(session.selectedArtifactId).toBeUndefined();
   });
 
   it("turns a human contribution into canvas artifacts and one facilitator question", () => {
