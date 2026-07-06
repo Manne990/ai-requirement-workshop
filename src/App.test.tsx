@@ -11,6 +11,7 @@ import {
   createInitialWorkshopSession,
   participantIds,
 } from "./domain/workshop";
+import { aiProcessingDisclosure } from "./domain/security";
 import {
   createWorkshopRecord,
   createWorkshopRecordExport,
@@ -67,6 +68,13 @@ describe("App", () => {
     expect(
       within(report).getByText(/requirement candidates/i),
     ).toBeInTheDocument();
+  });
+
+  it("shows the AI processing and attachment redaction disclosure in the composer", async () => {
+    render(<App />);
+    await registerForWorkshopAccess();
+
+    expect(screen.getByText(aiProcessingDisclosure)).toBeInTheDocument();
   });
 
   it("shows the human message immediately while the Codex turn is pending", async () => {

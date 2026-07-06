@@ -68,6 +68,7 @@ import {
   appendPendingCodexHumanMessage,
   applyCodexWorkshopTurn,
 } from "./domain/codexWorkshop";
+import { aiProcessingDisclosure } from "./domain/security";
 import {
   applyCollaborationEvent,
   createCollaborationEvent,
@@ -1872,6 +1873,10 @@ function WorkshopRoom() {
               placeholder="Example: SOS operators need a way to compare incoming incident data against earlier calls without slowing dispatch..."
               disabled={isCodexThinking}
             />
+            <div className="ai-disclosure" role="note">
+              <ShieldAlert aria-hidden="true" size={16} />
+              <span>{aiProcessingDisclosure}</span>
+            </div>
             <div className="attachment-toolbar">
               <button
                 className="ghost-button"
