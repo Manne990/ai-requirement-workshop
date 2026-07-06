@@ -530,6 +530,45 @@ describe("App", () => {
 
     fireEvent.click(await findConsolidationButtonByName(/apply/i));
     await waitForTelemetryEvent("consolidation.applied");
+    await waitFor(() => {
+      const records = JSON.parse(
+        window.localStorage.getItem(
+          "ai-requirement-workshop:v3-workshop-records",
+        ) ?? "[]",
+      ) as Array<{
+        requirements?: Array<{
+          state?: string;
+          sourceRefs?: Array<{ artifactId?: string }>;
+        }>;
+        auditEvents?: Array<{ action?: string }>;
+      }>;
+      const recordWithConsolidatedRequirement = records.find((record) =>
+        record.requirements?.some(
+          (requirement) =>
+            requirement.state === "approved" &&
+            (requirement.sourceRefs?.length ?? 0) > 1,
+        ),
+      );
+
+      expect(recordWithConsolidatedRequirement?.requirements).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            state: "approved",
+          }),
+        ]),
+      );
+      expect(
+        recordWithConsolidatedRequirement?.auditEvents?.map(
+          (event) => event.action,
+        ),
+      ).toEqual(
+        expect.arrayContaining([
+          "requirement.created",
+          "requirement.edited",
+          "requirement.approved",
+        ]),
+      );
+    });
 
     await sendWorkshopMessage(
       "A reviewer needs a system that should flag stale incident details and should flag stale incident sources.",

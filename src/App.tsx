@@ -82,7 +82,7 @@ import {
   type PrototypeFeedbackInput,
 } from "./domain/prototype";
 import {
-  applyRuntimeConsolidationSuggestion,
+  applyRuntimeConsolidationSuggestionWithLedger,
   approveRequirementPanelItem,
   baselineRequirementPanelItem,
   parkRuntimeConsolidationSuggestion,
@@ -1161,18 +1161,30 @@ function WorkshopRoom() {
   const handleApplyConsolidation = useCallback(
     (suggestionId: string) => {
       setSession((current) => {
+        const organizationId = organizationRuntime?.context.organization.id;
         const suggestion = selectConsolidationPanelSuggestionsFromSession(
           current,
         ).find((candidate) => candidate.id === suggestionId);
 
+        if (!organizationId) {
+          return current;
+        }
+
         try {
-          const next = applyRuntimeConsolidationSuggestion(
+          const result = applyRuntimeConsolidationSuggestionWithLedger(
             current,
+            requirementLedger,
             suggestionId,
+            {
+              organizationId,
+              workshopId: current.id,
+            },
             {
               actorId: participantIds.facilitator,
             },
           );
+          const next = result.session;
+          setRequirementLedger(result.ledger);
           if (suggestion) {
             const previousArtifactIds = new Set(
               current.artifacts.map((artifact) => artifact.id),
@@ -1208,7 +1220,11 @@ function WorkshopRoom() {
         }
       });
     },
-    [createTelemetryOptions],
+    [
+      createTelemetryOptions,
+      organizationRuntime?.context.organization.id,
+      requirementLedger,
+    ],
   );
 
   const handleParkConsolidation = useCallback(

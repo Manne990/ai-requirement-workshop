@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyRuntimeConsolidationSuggestion,
+  applyRuntimeConsolidationSuggestionWithLedger,
   approveRequirementPanelItem,
   baselineRequirementPanelItem,
   parkRuntimeConsolidationSuggestion,
@@ -229,6 +230,70 @@ describe("requirement runtime adapter", () => {
         .map((artifact) => artifact.status),
     ).toEqual(["parked", "parked"]);
     expect(session.artifacts).toHaveLength(2);
+  });
+
+  it("records applied consolidation suggestions into the durable requirement ledger", () => {
+    const session = sessionWithArtifacts([
+      artifact({
+        id: "artifact-requirement-1",
+        title: "Alarm overview",
+        content: "Dashboard should show active customer alarms.",
+      }),
+      artifact({
+        id: "artifact-requirement-2",
+        title: "Customer alarm list",
+        content: "The dashboard must display active alarms for each customer.",
+      }),
+    ]);
+    const [suggestion] =
+      selectConsolidationPanelSuggestionsFromSession(session);
+
+    if (!suggestion) {
+      throw new Error("Expected consolidation suggestion fixture.");
+    }
+
+    const result = applyRuntimeConsolidationSuggestionWithLedger(
+      session,
+      { requirements: [], auditEvents: [] },
+      suggestion,
+      {
+        organizationId: "org-1",
+        workshopId: session.id,
+      },
+      {
+        actorId: participantIds.human,
+        at: updatedAt,
+      },
+    );
+
+    expect(result.session.artifacts.at(-1)).toMatchObject({
+      id: "artifact-requirement-3",
+      status: "accepted",
+      tags: expect.arrayContaining(["consolidated", "merged"]),
+    });
+    expect(result.ledger.requirements).toHaveLength(1);
+    expect(result.ledger.requirements[0]).toMatchObject({
+      id: "requirement-artifact-requirement-3",
+      state: "approved",
+      approvedBy: participantIds.human,
+    });
+    expect(
+      result.ledger.requirements[0]?.sourceRefs.map(
+        (source) => source.artifactId,
+      ),
+    ).toEqual([
+      "artifact-requirement-3",
+      "artifact-requirement-1",
+      "artifact-requirement-2",
+    ]);
+    expect(result.createdRequirementIds).toEqual([
+      "requirement-artifact-requirement-3",
+    ]);
+    expect(result.ledger.auditEvents.map((event) => event.action)).toEqual([
+      "requirement.created",
+      "requirement.edited",
+      "requirement.approved",
+    ]);
   });
 
   it("parks a runtime consolidation suggestion without creating requirements", () => {

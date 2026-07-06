@@ -65,6 +65,13 @@ export type RequirementRuntimeAuditedAction =
 export type RuntimeConsolidationActionOptions =
   ApplyArtifactConsolidationOptions;
 
+export type RuntimeConsolidationApplyResult = {
+  session: WorkshopSession;
+  ledger: RequirementRuntimeLedger;
+  createdRequirementIds: string[];
+  updatedRequirementIds: string[];
+};
+
 const lifecycleTagAliases = {
   approved: ["approved"],
   rejected: ["rejected"],
@@ -262,6 +269,62 @@ export function applyRuntimeConsolidationSuggestion(
   );
 
   return result.session;
+}
+
+export function applyRuntimeConsolidationSuggestionWithLedger(
+  session: WorkshopSession,
+  ledger: RequirementRuntimeLedger,
+  suggestion: RuntimeConsolidationSuggestion | string,
+  context: RequirementRuntimeAuditContext,
+  options: RuntimeConsolidationActionOptions = {},
+): RuntimeConsolidationApplyResult {
+  const suggestionId = suggestionIdOf(suggestion);
+  const domainSuggestion = selectArtifactConsolidationSuggestion(
+    session,
+    suggestionId,
+  );
+  const actorId = options.actorId ?? participantIds.facilitator;
+  const at = options.at ?? now();
+  const result = applyArtifactConsolidationSuggestion(
+    session,
+    ledger.requirements,
+    domainSuggestion,
+    {
+      ...options,
+      actorId,
+      at,
+      approve: options.approve ?? true,
+      acceptanceCriteria:
+        options.acceptanceCriteria ??
+        defaultConsolidationAcceptanceCriteria(domainSuggestion),
+      rationale:
+        options.rationale ??
+        "Human approved the consolidation suggestion in the workshop.",
+    },
+  );
+  const affectedRequirements = uniqueRequirementsById([
+    ...result.createdRequirements,
+    ...result.updatedRequirements,
+  ]);
+  const auditEvents = affectedRequirements.reduce(
+    (events, requirement) =>
+      appendRequirementAuditEvents(events, requirement, context),
+    ledger.auditEvents,
+  );
+
+  return {
+    session: result.session,
+    ledger: {
+      requirements: result.requirements,
+      auditEvents,
+    },
+    createdRequirementIds: result.createdRequirements.map(
+      (requirement) => requirement.id,
+    ),
+    updatedRequirementIds: result.updatedRequirements.map(
+      (requirement) => requirement.id,
+    ),
+  };
 }
 
 export function parkRuntimeConsolidationSuggestion(
@@ -590,6 +653,35 @@ function nextAuditSequence(auditEvents: AuditEvent[]) {
 
 function createAuditEventId(workshopId: string, sequence: number) {
   return `${workshopId}:audit-${String(sequence).padStart(4, "0")}`;
+}
+
+function uniqueRequirementsById(requirements: Requirement[]) {
+  const seen = new Set<string>();
+  const unique: Requirement[] = [];
+
+  for (const requirement of requirements) {
+    if (seen.has(requirement.id)) {
+      continue;
+    }
+    seen.add(requirement.id);
+    unique.push(requirement);
+  }
+
+  return unique;
+}
+
+function defaultConsolidationAcceptanceCriteria(
+  suggestion: ArtifactConsolidationSuggestion,
+) {
+  if (suggestion.kind === "merge") {
+    return [
+      `The merged requirement preserves the intent of source artifacts ${suggestion.sourceArtifactIds.join(", ")}.`,
+    ];
+  }
+
+  return [
+    `Each split requirement preserves a distinct clause from source artifact ${suggestion.sourceArtifactIds[0] ?? "unknown"}.`,
+  ];
 }
 
 function defaultLedgerRationale(
