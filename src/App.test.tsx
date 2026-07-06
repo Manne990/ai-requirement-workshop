@@ -15,6 +15,7 @@ import {
   createWorkshopRecord,
   createWorkshopRecordExport,
 } from "./persistence/workshopStore";
+import { readMissionControlTelemetryRecords } from "./persistence/missionControlTelemetrySink";
 
 describe("App", () => {
   beforeEach(() => {
@@ -402,6 +403,88 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
+  it("records Mission Control telemetry for runtime workshop actions", async () => {
+    render(<App />);
+    await registerForWorkshopAccess();
+
+    await waitForTelemetryEvent("auth.boundary");
+    await waitForTelemetryEvent("workshop.opened");
+
+    await sendWorkshopMessage(
+      "A telemetry owner needs a system that should trace requirement decisions before release.",
+    );
+    await screen.findAllByRole("button", { name: /requirement candidate/i });
+    await waitForTelemetryEvent("message.sent");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /approve requirement candidate/i }),
+    );
+    await waitForTelemetryEvent("requirement.approved");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /baseline requirement candidate/i }),
+    );
+    await waitForTelemetryEvent("requirement.baselined");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /generate prototype/i }),
+    );
+    await screen.findByTitle(/generated prototype preview/i);
+    await waitForTelemetryEvent("prototype.generated");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /supersede requirement candidate/i }),
+    );
+    await waitForTelemetryEvent("requirement.superseded");
+
+    await sendWorkshopMessage(
+      "A release auditor needs a system that should reject stale checklist requirements.",
+    );
+    await screen.findAllByRole("button", {
+      name: /reject requirement candidate/i,
+    });
+    fireEvent.click(
+      screen.getAllByRole("button", {
+        name: /reject requirement candidate/i,
+      })[0],
+    );
+    await waitForTelemetryEvent("requirement.rejected");
+
+    expect(
+      readMissionControlTelemetryRecords().map((record) => record.event.name),
+    ).toEqual(
+      expect.arrayContaining([
+        "auth.boundary",
+        "workshop.opened",
+        "message.sent",
+        "requirement.approved",
+        "requirement.baselined",
+        "requirement.superseded",
+        "requirement.rejected",
+        "prototype.generated",
+      ]),
+    );
+  });
+
+  it("records Mission Control telemetry for consolidation review decisions", async () => {
+    render(<App />);
+    await registerForWorkshopAccess();
+
+    await sendWorkshopMessage(
+      "A coordinator needs a system that should show dispatch risk and should show dispatch risk sources.",
+    );
+
+    fireEvent.click(await findConsolidationButtonByName(/apply/i));
+    await waitForTelemetryEvent("consolidation.applied");
+
+    await sendWorkshopMessage(
+      "A reviewer needs a system that should flag stale incident details and should flag stale incident sources.",
+    );
+
+    fireEvent.click(await findConsolidationButtonByName(/park/i));
+    await waitForTelemetryEvent("consolidation.parked");
+  });
+
   it("exposes accessible regions, stateful controls, and dismissible dialogs for the workshop shell", async () => {
     render(<App />);
     await registerForWorkshopAccess();
@@ -507,6 +590,35 @@ async function registerForWorkshopAccess() {
   fireEvent.click(registerButtons[registerButtons.length - 1]);
 
   await screen.findByLabelText(/signed-in account/i);
+}
+
+async function sendWorkshopMessage(message: string) {
+  fireEvent.change(screen.getByLabelText(/describe, challenge, or refine/i), {
+    target: { value: message },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /send/i }));
+}
+
+async function waitForTelemetryEvent(eventName: string) {
+  await waitFor(() =>
+    expect(
+      readMissionControlTelemetryRecords().map((record) => record.event.name),
+    ).toContain(eventName),
+  );
+}
+
+async function findConsolidationButtonByName(name: RegExp) {
+  const panel = await screen.findByRole("region", {
+    name: /requirement suggestions/i,
+  });
+
+  return await waitFor(() => {
+    const button = within(panel)
+      .getAllByRole("button", { name })
+      .find((candidate) => !candidate.hasAttribute("disabled"));
+    expect(button).toBeDefined();
+    return button!;
+  });
 }
 
 function createFetchMock() {

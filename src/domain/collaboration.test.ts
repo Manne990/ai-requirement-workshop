@@ -7,6 +7,8 @@ import {
   createCollaborationProjection,
   createPresenceEvent,
   createPresenceState,
+  describeCollaborationProjection,
+  describePresenceSessions,
   listPresenceSessions,
   prunePresenceSessions,
   type CollaborationActor,
@@ -269,6 +271,85 @@ describe("collaboration domain", () => {
         actualRevision: 1,
         localValue: "accepted",
         incomingValue: "rejected",
+      }),
+    ]);
+  });
+
+  it("formats projection and presence diagnostics with revision and conflict context", () => {
+    const artifact = artifactDraft(
+      "artifact-diagnostic",
+      "2026-07-06T09:01:00.000Z",
+    );
+    const session = {
+      ...createInitialWorkshopSession("2026-07-06T09:00:00.000Z", workshopId),
+      artifacts: [artifact],
+    };
+    let projection = createCollaborationProjection(session);
+    const accept = createCollaborationEvent({
+      type: "artifact.statusChanged",
+      workshopId,
+      clientId: "client-a",
+      clientSessionId: "session-a",
+      sequence: 1,
+      occurredAt: "2026-07-06T09:02:00.000Z",
+      actor,
+      payload: {
+        artifactId: artifact.id,
+        status: "accepted",
+        expectedRevision: 0,
+        updatedAt: "2026-07-06T09:02:00.000Z",
+      },
+    });
+    const reject = createCollaborationEvent({
+      type: "artifact.statusChanged",
+      workshopId,
+      clientId: "client-b",
+      clientSessionId: "session-b",
+      sequence: 1,
+      occurredAt: "2026-07-06T09:02:01.000Z",
+      actor: { ...actor, participantId: "human-2", displayName: "Grace" },
+      payload: {
+        artifactId: artifact.id,
+        status: "rejected",
+        expectedRevision: 0,
+        updatedAt: "2026-07-06T09:02:01.000Z",
+      },
+    });
+
+    projection = applyCollaborationEvent(projection, accept);
+    projection = applyCollaborationEvent(projection, reject);
+
+    expect(JSON.parse(describeCollaborationProjection(projection))).toEqual(
+      expect.objectContaining({
+        artifacts: [
+          expect.objectContaining({
+            id: artifact.id,
+            status: "accepted",
+            revision: 1,
+          }),
+        ],
+        conflicts: [
+          expect.objectContaining({
+            kind: "revision-conflict",
+            targetId: artifact.id,
+            localValue: "accepted",
+            incomingValue: "rejected",
+          }),
+        ],
+      }),
+    );
+    expect(
+      JSON.parse(
+        describePresenceSessions([
+          presence("session-b", "Grace", "2026-07-06T09:00:00.000Z"),
+          presence("session-a", "Ada", "2026-07-06T09:01:00.000Z"),
+        ]),
+      ),
+    ).toEqual([
+      expect.objectContaining({ sessionId: "session-a", displayName: "Ada" }),
+      expect.objectContaining({
+        sessionId: "session-b",
+        displayName: "Grace",
       }),
     ]);
   });

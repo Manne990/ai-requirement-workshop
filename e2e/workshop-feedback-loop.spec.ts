@@ -125,6 +125,71 @@ test.describe("workshop feedback loop", () => {
 
     await assertNoPageScroll(page);
   });
+
+  test("keeps tablet workshop layout scroll-owned and accessible", async ({
+    page,
+  }) => {
+    await installCodexFakes(page);
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.goto("/");
+    await registerWithFrontendFallback(page, {
+      displayName: "Tablet Layout Reviewer",
+      email: "tablet-layout-reviewer@example.com",
+    });
+
+    await expect(
+      page.getByRole("region", { name: /workshop room/i }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: /workshop operations/i }),
+    ).toBeVisible();
+    await expect(page.getByLabel(/workshop chat/i)).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: /prototype preview/i }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: /requirements management/i }),
+    ).toBeVisible();
+    await expect(page.getByRole("log")).toHaveAttribute("aria-live", "polite");
+
+    await page
+      .getByLabel(/describe, challenge, or refine/i)
+      .fill(
+        "A tablet reviewer needs the workshop operations lane to stay reachable without creating page scroll.",
+      );
+    await page.getByRole("button", { name: /^send$/i }).click();
+    await expect(
+      page.getByText(/what measurable behavior proves/i),
+    ).toBeVisible();
+
+    const layoutBeforePrototype = await readLayout(page);
+    expect(layoutBeforePrototype.canvasVisible).toBe(true);
+    expect(layoutBeforePrototype.canvasHeight).toBeGreaterThanOrEqual(180);
+    expect(layoutBeforePrototype.detailRailVisible).toBe(true);
+    expect(layoutBeforePrototype.operationsScrollsVertically).toBe(true);
+    expect(layoutBeforePrototype.chatScrollsVertically).toBe(true);
+    expect(layoutBeforePrototype.participantsCanScrollHorizontally).toBe(true);
+
+    await page
+      .getByRole("button", {
+        name: "Approve Requirement candidate",
+        exact: true,
+      })
+      .click();
+    await page.getByRole("button", { name: /generate prototype/i }).click();
+    await expect(
+      page
+        .frameLocator("iframe[title='Generated prototype preview']")
+        .getByRole("heading", { name: /prototype v1/i }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /add feedback/i }),
+    ).toBeVisible();
+
+    const layoutAfterPrototype = await readLayout(page);
+    expect(layoutAfterPrototype.prototypeScrollsVertically).toBe(true);
+    await assertNoPageScroll(page);
+  });
 });
 
 async function registerWithFrontendFallback(
@@ -254,6 +319,22 @@ async function readLayout(page: Page) {
       participantsCanScrollHorizontally:
         participantsStyle.overflowX === "auto" &&
         participants.scrollWidth > participants.clientWidth,
+      canvasHeight: canvasRect.height,
+      operationsScrollsVertically:
+        window.getComputedStyle(document.querySelector(".operations-pane")!)
+          .overflowY === "auto" &&
+        document.querySelector(".operations-pane")!.scrollHeight >
+          document.querySelector(".operations-pane")!.clientHeight,
+      chatScrollsVertically:
+        window.getComputedStyle(document.querySelector(".message-list")!)
+          .overflowY === "auto" &&
+        document.querySelector(".message-list")!.scrollHeight >
+          document.querySelector(".message-list")!.clientHeight,
+      prototypeScrollsVertically:
+        window.getComputedStyle(document.querySelector(".prototype-pane")!)
+          .overflowY === "auto" &&
+        document.querySelector(".prototype-pane")!.scrollHeight >
+          document.querySelector(".prototype-pane")!.clientHeight,
     };
   });
 }

@@ -24,6 +24,8 @@ import {
   buildTraceabilityGraph,
   findTraceabilityCoverageGaps,
   type TraceabilityCoverageGap,
+  type TraceabilityGraph,
+  type TraceabilityGraphInput,
 } from "./traceability";
 import {
   generateWorkshopReport,
@@ -118,6 +120,9 @@ export type ProductionExportTraceabilityCoverage = {
   gapCount: number;
   coveragePercent: number;
   gaps: TraceabilityCoverageGap[];
+  reviewRequirementNodeIds: string[];
+  reviewGapCount: number;
+  reviewGaps: TraceabilityCoverageGap[];
   gapsByExpectation: {
     expectationId: string;
     count: number;
@@ -199,6 +204,13 @@ export type CreateProductionExportPackageInput = {
   organizationId: string;
   workshopId?: string;
   generatedAt: string;
+  traceability?: TraceabilityGraphInput;
+};
+
+type TraceabilityRequirementTarget = {
+  requirementId: string;
+  title: string;
+  aliases: string[];
 };
 
 export function createProductionExportPackage(
@@ -208,28 +220,30 @@ export function createProductionExportPackage(
   const auditEvents = input.auditEvents ?? [];
   const workshopId = input.workshopId ?? input.session.id;
   const redactor = createPackageRedactor();
+  const reviewRequirements = requirements.filter(isReviewableRequirement);
+  const reviewRequirementTargets =
+    traceabilityTargetsForRequirements(reviewRequirements);
   const report = sanitizeWorkshopReport(
     generateWorkshopReport(input.session, input.generatedAt),
     redactor.safeText,
   );
-  const traceability = buildTraceabilityCoverage(input.session);
+  const traceability = buildTraceabilityCoverage(
+    input.session,
+    reviewRequirementTargets,
+    input.traceability,
+  );
   const requirementQuality = summarizeRequirementQuality(
-    evaluateRequirementQuality(input.session.artifacts),
+    evaluateRequirementQuality(input.session.artifacts, {
+      focusArtifactIds: uniqueSorted(
+        reviewRequirementTargets.flatMap((target) => target.aliases),
+      ),
+    }),
     redactor.safeText,
   );
-  const audit = buildAuditMetadata(requirements, auditEvents);
-  const requirementRegister = requirements
-    .filter(
-      (requirement) =>
-        requirement.state === "approved" || requirement.state === "baselined",
-    )
-    .map((requirement) =>
-      exportRequirement(
-        requirement,
-        audit.requirementHistory,
-        redactor.safeText,
-      ),
-    );
+  const audit = buildAuditMetadata(reviewRequirements, auditEvents);
+  const requirementRegister = reviewRequirements.map((requirement) =>
+    exportRequirement(requirement, audit.requirementHistory, redactor.safeText),
+  );
   const prototypeSummary = buildPrototypeSummary(
     input.session.prototypes ?? [],
     redactor.safeText,
@@ -351,9 +365,32 @@ function sanitizeArtifact(
 
 function buildTraceabilityCoverage(
   session: WorkshopSession,
+  reviewRequirementTargets: TraceabilityRequirementTarget[],
+  input: TraceabilityGraphInput = {},
 ): ProductionExportTraceabilityCoverage {
-  const graph = buildTraceabilityGraph(session);
-  const gaps = findTraceabilityCoverageGaps(graph);
+  const graph = buildTraceabilityGraph(session, input);
+  const discoveredGaps = findTraceabilityCoverageGaps(graph);
+  const resolvedReviewRequirementNodeIds = uniqueSorted(
+    reviewRequirementTargets.flatMap((target) =>
+      resolveTraceabilityTargetNodeIds(graph, target),
+    ),
+  );
+  const unresolvedReviewGaps = reviewRequirementTargets
+    .filter(
+      (target) => resolveTraceabilityTargetNodeIds(graph, target).length === 0,
+    )
+    .map((target) => unresolvedRequirementTraceabilityGap(target));
+  const gaps = [...discoveredGaps, ...unresolvedReviewGaps];
+  const reviewNodeIds = new Set(resolvedReviewRequirementNodeIds);
+
+  for (const link of graph.links) {
+    if (reviewNodeIds.has(link.sourceNodeId)) {
+      reviewNodeIds.add(link.targetNodeId);
+    }
+  }
+
+  const reviewGaps = gaps.filter((gap) => reviewNodeIds.has(gap.targetNodeId));
+  reviewGaps.push(...unresolvedReviewGaps);
   const coveredNodeIds = new Set(
     graph.nodes
       .filter(
@@ -380,6 +417,9 @@ function buildTraceabilityCoverage(
         ? 100
         : Math.round((coveredNodeCount / assessedNodeCount) * 100),
     gaps,
+    reviewRequirementNodeIds: resolvedReviewRequirementNodeIds,
+    reviewGapCount: reviewGaps.length,
+    reviewGaps,
     gapsByExpectation: countBy(gaps, (gap) => gap.expectationId).map(
       ([expectationId, count]) => ({ expectationId, count }),
     ),
@@ -570,13 +610,13 @@ function determineReadiness(input: {
   if (
     input.requirementRegister.length === 0 ||
     input.audit.missingEvidenceWarnings.length > 0 ||
-    input.requirementQuality.blockerCount > 0
+    input.requirementQuality.blockerCount > 0 ||
+    input.traceability.reviewGapCount > 0
   ) {
     return "blocked";
   }
 
   if (
-    input.traceability.gapCount > 0 ||
     input.traceability.warnings.length > 0 ||
     input.requirementQuality.warningCount > 0
   ) {
@@ -584,6 +624,54 @@ function determineReadiness(input: {
   }
 
   return "ready";
+}
+
+function isReviewableRequirement(requirement: Requirement) {
+  return requirement.state === "approved" || requirement.state === "baselined";
+}
+
+function traceabilityTargetsForRequirements(
+  requirements: Requirement[],
+): TraceabilityRequirementTarget[] {
+  return requirements.map((requirement) => ({
+    requirementId: requirement.id,
+    title: requirement.title,
+    aliases: uniqueSorted([
+      requirement.id,
+      `requirement:${requirement.id}`,
+      ...requirement.sourceRefs.flatMap((sourceRef) =>
+        sourceRef.artifactId
+          ? [sourceRef.artifactId, `requirement:${sourceRef.artifactId}`]
+          : [],
+      ),
+    ]),
+  }));
+}
+
+function resolveTraceabilityTargetNodeIds(
+  graph: TraceabilityGraph,
+  target: TraceabilityRequirementTarget,
+) {
+  return uniqueSorted(
+    target.aliases.flatMap((alias) => {
+      const nodeId = graph.nodeAliases[alias] ?? alias;
+      return graph.nodes.some((node) => node.id === nodeId) ? [nodeId] : [];
+    }),
+  );
+}
+
+function unresolvedRequirementTraceabilityGap(
+  target: TraceabilityRequirementTarget,
+): TraceabilityCoverageGap {
+  return {
+    expectationId: "requirement-source",
+    targetNodeId: `requirement:${target.requirementId}`,
+    targetKind: "requirement",
+    targetLabel: target.title,
+    direction: "upstream",
+    acceptedKinds: ["source-message", "source-attachment", "artifact"],
+    detail: `${target.title} is missing traceability graph coverage for the approved or baselined requirement.`,
+  };
 }
 
 function exportArtifacts(

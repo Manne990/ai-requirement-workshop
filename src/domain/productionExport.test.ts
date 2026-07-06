@@ -3,6 +3,7 @@ import { auditRequirementHistory, createAuditEvent } from "./audit";
 import { createProductionExportPackage } from "./productionExport";
 import {
   approveRequirement,
+  baselineRequirement,
   createRequirement,
   reviseRequirement,
 } from "./requirements";
@@ -103,6 +104,7 @@ describe("production export package", () => {
       },
     );
     const session = createReviewSession([prototype]);
+    const traceability = completeTraceabilityInput();
 
     const first = createProductionExportPackage({
       session,
@@ -111,6 +113,7 @@ describe("production export package", () => {
       organizationId,
       workshopId,
       generatedAt,
+      traceability,
     });
     const second = createProductionExportPackage({
       session,
@@ -119,13 +122,14 @@ describe("production export package", () => {
       organizationId,
       workshopId,
       generatedAt,
+      traceability,
     });
 
     expect(second).toEqual(first);
     expect(first).toMatchObject({
       schema_version: 1,
       kind: "AI_REQUIREMENT_WORKSHOP_PRODUCTION_REVIEW_PACKAGE",
-      readiness: "needs-review",
+      readiness: "ready",
       provenance: {
         source: "saved-workshop-state",
         generator: "createProductionExportPackage",
@@ -166,12 +170,11 @@ describe("production export package", () => {
       linkCount: expect.any(Number),
       gapCount: expect.any(Number),
       coveragePercent: expect.any(Number),
+      reviewRequirementNodeIds: ["requirement:artifact-requirement-1"],
+      reviewGapCount: 0,
+      reviewGaps: [],
     });
-    expect(first.traceability.gapsByExpectation).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ expectationId: "risk-test" }),
-      ]),
-    );
+    expect(first.traceability.gaps).toEqual([]);
     expect(first.requirementQuality.blockerCount).toBe(0);
     expect(first.prototypeSummary).toMatchObject({
       prototypeCount: 1,
@@ -196,6 +199,130 @@ describe("production export package", () => {
     );
     expect(JSON.stringify(first)).not.toContain(
       "sk-abcdefghijklmnopqrstuvwxyz",
+    );
+  });
+
+  it("prefers baselined requirements while retaining non-review traceability gaps", () => {
+    const baselinedRequirement = baselineRequirement(
+      approveRequirement(
+        createRequirement({
+          id: "requirement-alarm-status",
+          title: "Fresh alarm dashboard",
+          statement:
+            "The operator should view alarm status within 60 seconds so that stale incidents are visible. Acceptance criteria: Given an alarm changes, then the dashboard updates within 60 seconds. Security audit logging records access.",
+          state: "candidate",
+          createdAt: "2026-07-06T09:02:00.000Z",
+          createdBy: "agent-quality",
+          acceptanceCriteria: [
+            "Given an alarm changes, then the dashboard updates within 60 seconds.",
+          ],
+          rationale: "Derived from workshop source material.",
+          sourceRefs: [
+            {
+              artifactId: "artifact-requirement-1",
+              messageId: "message-source",
+              participantId: "human-1",
+            },
+          ],
+        }),
+        {
+          actorId: "product-owner",
+          at: "2026-07-06T09:10:00.000Z",
+          rationale: "Accepted for stakeholder review.",
+        },
+      ),
+      {
+        actorId: "facilitator",
+        at: "2026-07-06T09:15:00.000Z",
+        rationale: "Frozen for production review.",
+      },
+    );
+    const candidateRequirement = createRequirement({
+      id: "requirement-draft-only",
+      title: "Draft-only workflow",
+      statement: "The service should be easy to use.",
+      state: "candidate",
+      createdAt: "2026-07-06T09:20:00.000Z",
+      createdBy: "agent-quality",
+      acceptanceCriteria: ["Owner can inspect the workflow."],
+      sourceRefs: [{ artifactId: "artifact-draft-only" }],
+    });
+    const prototype = createPrototype(
+      workshopId,
+      [prototypeRequirementRefFromRequirement(baselinedRequirement)],
+      {
+        prototypeId: "prototype-alarm-review",
+        title: "Alarm review",
+        actorId: "agent-ux",
+        at: "2026-07-06T09:20:00.000Z",
+        sourceModel: {
+          provider: "manual",
+          model: "prototype-test-model",
+          promptVersion: "prod-export-test",
+        },
+      },
+    );
+    const baseSession = createReviewSession([prototype]);
+    const session = {
+      ...baseSession,
+      artifacts: [
+        ...baseSession.artifacts,
+        {
+          id: "artifact-draft-only",
+          type: "requirement" as const,
+          title: "Draft-only workflow",
+          content: "The service should be easy to use.",
+          status: "draft" as const,
+          createdBy: "agent-quality",
+          updatedAt: "2026-07-06T09:20:00.000Z",
+          source: {
+            messageId: "message-source",
+            participantId: "human-1",
+          },
+          tags: ["requirement"],
+        },
+      ],
+    };
+
+    const exported = createProductionExportPackage({
+      session,
+      requirements: [candidateRequirement, baselinedRequirement],
+      auditEvents: auditRequirementHistory(baselinedRequirement, {
+        organizationId,
+        workshopId,
+      }),
+      organizationId,
+      workshopId,
+      generatedAt,
+      traceability: {
+        workItems: [
+          ...completeTraceabilityInput().workItems,
+          {
+            id: "orphan-draft-test",
+            kind: "test",
+            title: "Exploratory draft validation",
+          },
+        ],
+      },
+    });
+
+    expect(exported.readiness).toBe("ready");
+    expect(exported.requirementRegister).toHaveLength(1);
+    expect(exported.requirementRegister[0]).toMatchObject({
+      id: "requirement-alarm-status",
+      state: "baselined",
+    });
+    expect(exported.audit.missingEvidenceWarnings).toEqual([]);
+    expect(exported.requirementQuality.blockerCount).toBe(0);
+    expect(exported.traceability.gapCount).toBeGreaterThan(0);
+    expect(exported.traceability.reviewGapCount).toBe(0);
+    expect(exported.traceability.gaps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          expectationId: "test-target",
+          targetNodeId: "test:orphan-draft-test",
+        }),
+      ]),
     );
   });
 
@@ -234,6 +361,18 @@ describe("production export package", () => {
       "Missing audit event for requirement requirement-weak history requirement-weak:history-2.",
     ]);
     expect(exported.requirementQuality.blockerCount).toBeGreaterThan(0);
+    expect(exported.traceability.reviewGaps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          expectationId: "requirement-test",
+          targetNodeId: "requirement:artifact-requirement-weak",
+        }),
+        expect.objectContaining({
+          expectationId: "requirement-risk-review",
+          targetNodeId: "requirement:artifact-requirement-weak",
+        }),
+      ]),
+    );
     expect(exported.requirementRegister[0]?.history).toEqual([
       expect.objectContaining({ auditEventId: undefined }),
       expect.objectContaining({ auditEventId: undefined }),
@@ -351,6 +490,19 @@ function createReviewSession(
     visualizationMode: "requirements",
     followDiscussion: true,
     updatedAt: "2026-07-06T09:30:00.000Z",
+  };
+}
+
+function completeTraceabilityInput() {
+  return {
+    workItems: [
+      {
+        id: "risk-monitoring-test",
+        kind: "test" as const,
+        title: "Risk monitoring contract test",
+        covers: ["artifact-risk-1"],
+      },
+    ],
   };
 }
 

@@ -642,7 +642,8 @@ function prototypeWorkItems(
             : [],
         ),
         covers: version.requirementRefs.map(
-          (requirement) => requirement.requirementId,
+          (requirement) =>
+            requirement.sourceArtifactId ?? requirement.requirementId,
         ),
         tags: [
           "prototype",

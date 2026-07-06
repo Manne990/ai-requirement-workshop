@@ -1,10 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  applyCollaborationEvent,
+  compareCollaborationEvents,
   createCollaborationEvent,
+  createCollaborationProjection,
+  describeCollaborationProjection,
+  describePresenceSessions,
   type CollaborationActor,
+  type CollaborationProjection,
   type WorkshopCollaborationEvent,
   type WorkshopPresenceSession,
 } from "../domain/collaboration";
+import {
+  createInitialWorkshopSession,
+  type ArtifactStatus,
+  type WorkshopArtifact,
+} from "../domain/workshop";
 import {
   createLocalRealtimeWorkshopChannel,
   createLocalRealtimeWorkshopHub,
@@ -135,6 +146,111 @@ describe("realtimeWorkshopChannel", () => {
       "message-later",
     ]);
     expect(messageIds(replayed)).toEqual(["message-earlier", "message-later"]);
+
+    await first.close();
+    await second.close();
+  });
+
+  it("projects two local sessions through message, artifact, and status conflict events", async () => {
+    const hub = createLocalRealtimeWorkshopHub(workshopId);
+    const first = createLocalRealtimeWorkshopChannel({
+      workshopId,
+      clientId: "client-a",
+      clientSessionId: "session-a",
+      hub,
+    });
+    const second = createLocalRealtimeWorkshopChannel({
+      workshopId,
+      clientId: "client-b",
+      clientSessionId: "session-b",
+      hub,
+    });
+    const baseSession = createInitialWorkshopSession(
+      "2026-07-06T10:04:00.000Z",
+      workshopId,
+    );
+    let firstProjection = createCollaborationProjection(baseSession);
+    let secondProjection = createCollaborationProjection(baseSession);
+    const firstReceived: WorkshopCollaborationEvent[] = [];
+    const secondReceived: WorkshopCollaborationEvent[] = [];
+    const artifact = artifactFor(
+      "artifact-realtime-1",
+      "2026-07-06T10:04:02.000Z",
+    );
+    const events = [
+      eventFor("message-shared", "2026-07-06T10:04:01.000Z"),
+      artifactEventFor(artifact, "2026-07-06T10:04:02.000Z", {
+        clientId: "client-b",
+        clientSessionId: "session-b",
+        sequence: 1,
+      }),
+      statusEventFor(artifact.id, "accepted", "2026-07-06T10:04:03.000Z", {
+        clientId: "client-a",
+        clientSessionId: "session-a",
+        sequence: 2,
+      }),
+      statusEventFor(artifact.id, "rejected", "2026-07-06T10:04:03.000Z", {
+        clientId: "client-b",
+        clientSessionId: "session-b",
+        sequence: 2,
+        displayName: "Grace",
+      }),
+    ].sort(compareCollaborationEvents);
+
+    first.subscribeToEvents((event) => {
+      firstReceived.push(event);
+      firstProjection = applyCollaborationEvent(firstProjection, event);
+    });
+    second.subscribeToEvents((event) => {
+      secondReceived.push(event);
+      secondProjection = applyCollaborationEvent(secondProjection, event);
+    });
+
+    await first.trackPresence(
+      presence("session-a", "Ada", "2026-07-06T10:04:00.000Z"),
+    );
+    await second.trackPresence(
+      presence("session-b", "Grace", "2026-07-06T10:04:00.500Z"),
+    );
+    for (const event of events) {
+      await (
+        event.clientSessionId === "session-a" ? first : second
+      ).publishEvent(event);
+    }
+
+    const debug = projectionPairDebug(firstProjection, secondProjection);
+    const firstPresence = describePresenceSessions(first.getPresenceSnapshot());
+    const secondPresence = describePresenceSessions(
+      second.getPresenceSnapshot(),
+    );
+    expect(
+      firstPresence,
+      `first:\n${firstPresence}\nsecond:\n${secondPresence}`,
+    ).toBe(secondPresence);
+    expect(eventLabels(firstReceived), debug).toEqual(eventLabels(events));
+    expect(eventLabels(secondReceived), debug).toEqual(eventLabels(events));
+    expect(describeCollaborationProjection(firstProjection), debug).toBe(
+      describeCollaborationProjection(secondProjection),
+    );
+    expect(
+      firstProjection.session.artifacts.find(
+        (candidate) => candidate.id === artifact.id,
+      )?.status,
+      debug,
+    ).toBe("accepted");
+    expect(firstProjection.artifactRevisions[artifact.id], debug).toBe(1);
+    expect(firstProjection.conflicts, debug).toEqual([
+      expect.objectContaining({
+        eventId: events.at(-1)?.id,
+        kind: "revision-conflict",
+        targetType: "artifact",
+        targetId: artifact.id,
+        expectedRevision: 0,
+        actualRevision: 1,
+        localValue: "accepted",
+        incomingValue: "rejected",
+      }),
+    ]);
 
     await first.close();
     await second.close();
@@ -288,10 +404,94 @@ function eventFor(
   });
 }
 
+function artifactEventFor(
+  artifact: WorkshopArtifact,
+  occurredAt: string,
+  options: {
+    clientId: string;
+    clientSessionId: string;
+    sequence: number;
+  },
+): WorkshopCollaborationEvent {
+  return createCollaborationEvent({
+    type: "artifact.added",
+    workshopId,
+    clientId: options.clientId,
+    clientSessionId: options.clientSessionId,
+    sequence: options.sequence,
+    occurredAt,
+    actor: actorFor(options.clientSessionId),
+    payload: {
+      artifact,
+      revision: 0,
+    },
+  });
+}
+
+function statusEventFor(
+  artifactId: string,
+  status: ArtifactStatus,
+  occurredAt: string,
+  options: {
+    clientId: string;
+    clientSessionId: string;
+    sequence: number;
+    displayName?: string;
+  },
+): WorkshopCollaborationEvent {
+  return createCollaborationEvent({
+    type: "artifact.statusChanged",
+    workshopId,
+    clientId: options.clientId,
+    clientSessionId: options.clientSessionId,
+    sequence: options.sequence,
+    occurredAt,
+    actor: {
+      ...actorFor(options.clientSessionId),
+      displayName: options.displayName ?? actor.displayName,
+    },
+    payload: {
+      artifactId,
+      status,
+      expectedRevision: 0,
+      updatedAt: occurredAt,
+    },
+  });
+}
+
+function artifactFor(id: string, updatedAt: string): WorkshopArtifact {
+  return {
+    id,
+    type: "requirement",
+    title: "Realtime collaboration",
+    content: "The workshop should synchronize collaboration events.",
+    status: "draft",
+    createdBy: "human-1",
+    updatedAt,
+    source: { participantId: "human-1" },
+    tags: ["collaboration"],
+  };
+}
+
 function messageIds(events: WorkshopCollaborationEvent[]): string[] {
   return events.map((event) =>
     event.type === "message.added" ? event.payload.message.id : event.id,
   );
+}
+
+function eventLabels(events: WorkshopCollaborationEvent[]): string[] {
+  return events.map((event) => {
+    if (event.type === "message.added") {
+      return `message:${event.payload.message.id}`;
+    }
+    if (event.type === "artifact.added") {
+      return `artifact:${event.payload.artifact.id}`;
+    }
+    if (event.type === "artifact.statusChanged") {
+      return `status:${event.payload.artifactId}:${event.payload.status}`;
+    }
+    return `metadata:${event.id}`;
+  });
 }
 
 function presence(
@@ -310,4 +510,25 @@ function presence(
     connectedAt: at,
     lastSeenAt: at,
   };
+}
+
+function actorFor(clientSessionId: string): CollaborationActor {
+  return {
+    participantId: clientSessionId === "session-a" ? "human-1" : "human-2",
+    userId: clientSessionId === "session-a" ? "user-1" : "user-2",
+    displayName: clientSessionId === "session-a" ? "Ada" : "Grace",
+    type: "human",
+  };
+}
+
+function projectionPairDebug(
+  first: CollaborationProjection,
+  second: CollaborationProjection,
+): string {
+  return [
+    "first projection:",
+    describeCollaborationProjection(first),
+    "second projection:",
+    describeCollaborationProjection(second),
+  ].join("\n");
 }

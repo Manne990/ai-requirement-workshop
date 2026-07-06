@@ -257,6 +257,9 @@ button:disabled {
 
 .operations-pane > section {
   min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .canvas-header,
@@ -979,7 +982,7 @@ button:disabled {
 @media (max-width: 1100px) {
   .workspace-grid {
     grid-template-columns: minmax(0, 1fr) minmax(300px, 34vw);
-    grid-template-rows: minmax(0, 1fr) minmax(320px, 0.8fr);
+    grid-template-rows: minmax(180px, 1fr) minmax(220px, 0.72fr);
   }
 
   .prototype-pane {

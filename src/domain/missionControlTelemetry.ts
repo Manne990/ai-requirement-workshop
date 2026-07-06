@@ -14,7 +14,11 @@ export const missionControlTelemetryEventNames = {
   workshopOpened: "workshop.opened",
   messageSent: "message.sent",
   requirementApproved: "requirement.approved",
+  requirementBaselined: "requirement.baselined",
+  requirementRejected: "requirement.rejected",
+  requirementSuperseded: "requirement.superseded",
   consolidationApplied: "consolidation.applied",
+  consolidationParked: "consolidation.parked",
   prototypeGenerated: "prototype.generated",
   authBoundary: "auth.boundary",
 } as const;
@@ -86,6 +90,17 @@ export type RequirementApprovedPayload = {
   title: string;
   previousStatus?: WorkshopArtifact["status"];
   status: "accepted";
+  lifecycle: "approved";
+  sourceRef: SourceRef;
+  tagCount: number;
+};
+
+export type RequirementLifecyclePayload = {
+  requirementId: string;
+  title: string;
+  previousStatus?: WorkshopArtifact["status"];
+  status: WorkshopArtifact["status"];
+  lifecycle: "approved" | "baselined" | "rejected" | "superseded";
   sourceRef: SourceRef;
   tagCount: number;
 };
@@ -126,7 +141,11 @@ export type MissionControlTelemetryPayloadByName = {
   [missionControlTelemetryEventNames.workshopOpened]: WorkshopOpenedPayload;
   [missionControlTelemetryEventNames.messageSent]: MessageSentPayload;
   [missionControlTelemetryEventNames.requirementApproved]: RequirementApprovedPayload;
+  [missionControlTelemetryEventNames.requirementBaselined]: RequirementLifecyclePayload;
+  [missionControlTelemetryEventNames.requirementRejected]: RequirementLifecyclePayload;
+  [missionControlTelemetryEventNames.requirementSuperseded]: RequirementLifecyclePayload;
   [missionControlTelemetryEventNames.consolidationApplied]: ConsolidationAppliedPayload;
+  [missionControlTelemetryEventNames.consolidationParked]: ConsolidationAppliedPayload;
   [missionControlTelemetryEventNames.prototypeGenerated]: PrototypeGeneratedPayload;
   [missionControlTelemetryEventNames.authBoundary]: AuthBoundaryPayload;
 };
@@ -135,7 +154,11 @@ export type MissionControlKpiName =
   | "workshops.opened"
   | "messages.sent"
   | "requirements.approved"
+  | "requirements.baselined"
+  | "requirements.rejected"
+  | "requirements.superseded"
   | "consolidations.applied"
+  | "consolidations.parked"
   | "prototypes.generated"
   | "auth.boundary.events"
   | "workshop.messages.total"
@@ -269,9 +292,97 @@ export function createRequirementApprovedTelemetry(
 ): MissionControlTelemetryEvent<
   typeof missionControlTelemetryEventNames.requirementApproved
 > {
+  return createRequirementLifecycleTelemetry(
+    missionControlTelemetryEventNames.requirementApproved,
+    "requirements.approved",
+    "approved",
+    "accepted",
+    session,
+    requirement,
+    options,
+  );
+}
+
+export function createRequirementBaselinedTelemetry(
+  session: WorkshopSession,
+  requirement: WorkshopArtifact,
+  options: EventOptions & {
+    previousStatus?: WorkshopArtifact["status"];
+  },
+): MissionControlTelemetryEvent<
+  typeof missionControlTelemetryEventNames.requirementBaselined
+> {
+  return createRequirementLifecycleTelemetry(
+    missionControlTelemetryEventNames.requirementBaselined,
+    "requirements.baselined",
+    "baselined",
+    "accepted",
+    session,
+    requirement,
+    options,
+  );
+}
+
+export function createRequirementRejectedTelemetry(
+  session: WorkshopSession,
+  requirement: WorkshopArtifact,
+  options: EventOptions & {
+    previousStatus?: WorkshopArtifact["status"];
+  },
+): MissionControlTelemetryEvent<
+  typeof missionControlTelemetryEventNames.requirementRejected
+> {
+  return createRequirementLifecycleTelemetry(
+    missionControlTelemetryEventNames.requirementRejected,
+    "requirements.rejected",
+    "rejected",
+    "rejected",
+    session,
+    requirement,
+    options,
+  );
+}
+
+export function createRequirementSupersededTelemetry(
+  session: WorkshopSession,
+  requirement: WorkshopArtifact,
+  options: EventOptions & {
+    previousStatus?: WorkshopArtifact["status"];
+  },
+): MissionControlTelemetryEvent<
+  typeof missionControlTelemetryEventNames.requirementSuperseded
+> {
+  return createRequirementLifecycleTelemetry(
+    missionControlTelemetryEventNames.requirementSuperseded,
+    "requirements.superseded",
+    "superseded",
+    "parked",
+    session,
+    requirement,
+    options,
+  );
+}
+
+function createRequirementLifecycleTelemetry<
+  TName extends
+    | typeof missionControlTelemetryEventNames.requirementApproved
+    | typeof missionControlTelemetryEventNames.requirementBaselined
+    | typeof missionControlTelemetryEventNames.requirementRejected
+    | typeof missionControlTelemetryEventNames.requirementSuperseded,
+>(
+  name: TName,
+  kpiName: MissionControlKpiName,
+  lifecycle: RequirementLifecyclePayload["lifecycle"],
+  status: WorkshopArtifact["status"],
+  session: WorkshopSession,
+  requirement: WorkshopArtifact,
+  options: EventOptions & {
+    previousStatus?: WorkshopArtifact["status"];
+  },
+): MissionControlTelemetryEvent<TName> {
   if (requirement.type !== "requirement") {
     throw new Error(
-      "Only requirement artifacts can emit requirement approval.",
+      "Only requirement artifacts can emit requirement lifecycle telemetry.",
     );
   }
 
@@ -285,31 +396,27 @@ export function createRequirementApprovedTelemetry(
     sourceArtifactId: requirement.source.artifactId,
     sourceRefs: [requirement.source],
   });
-  const payload: RequirementApprovedPayload = {
+  const payload = {
     requirementId: requirement.id,
     title: requirement.title,
     previousStatus: options.previousStatus,
-    status: "accepted",
+    status,
+    lifecycle,
     sourceRef: requirement.source,
     tagCount: requirement.tags.length,
-  };
+  } as MissionControlTelemetryPayloadByName[TName];
 
-  return createTelemetryEvent(
-    missionControlTelemetryEventNames.requirementApproved,
-    payload,
-    provenance,
-    options,
-    [
-      createMissionControlKpi(
-        "requirements.approved",
-        1,
-        options.occurredAt,
-        options.source,
-        provenance,
-      ),
-      ...buildWorkshopKpiSnapshot(session, options.occurredAt, options.source),
-    ],
-  );
+  return createTelemetryEvent(name, payload, provenance, options, [
+    createMissionControlKpi(
+      kpiName,
+      1,
+      options.occurredAt,
+      options.source,
+      provenance,
+      { lifecycle },
+    ),
+    ...buildWorkshopKpiSnapshot(session, options.occurredAt, options.source),
+  ]);
 }
 
 export function createConsolidationAppliedTelemetry(
@@ -337,6 +444,41 @@ export function createConsolidationAppliedTelemetry(
     [
       createMissionControlKpi(
         "consolidations.applied",
+        1,
+        options.occurredAt,
+        options.source,
+        provenance,
+      ),
+      ...buildWorkshopKpiSnapshot(session, options.occurredAt, options.source),
+    ],
+  );
+}
+
+export function createConsolidationParkedTelemetry(
+  session: WorkshopSession,
+  input: ConsolidationAppliedPayload,
+  options: EventOptions,
+): MissionControlTelemetryEvent<
+  typeof missionControlTelemetryEventNames.consolidationParked
+> {
+  const artifactIds = [...input.inputArtifactIds, ...input.outputArtifactIds];
+  const sourceRefs = session.artifacts
+    .filter((artifact) => artifactIds.includes(artifact.id))
+    .map((artifact) => artifact.source);
+  const provenance = sessionProvenance(session, options, {
+    artifactIds,
+    requirementIds: input.approvedRequirementIds,
+    sourceRefs,
+  });
+
+  return createTelemetryEvent(
+    missionControlTelemetryEventNames.consolidationParked,
+    input,
+    provenance,
+    options,
+    [
+      createMissionControlKpi(
+        "consolidations.parked",
         1,
         options.occurredAt,
         options.source,

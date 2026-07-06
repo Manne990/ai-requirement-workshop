@@ -56,6 +56,8 @@ import {
   requestCodexWorkshopTurn,
   type CodexStatus,
 } from "./codex/client";
+import { useAuth } from "./auth/useAuth";
+import type { AuthOperation } from "./auth/types";
 import { PrototypePanel } from "./components/PrototypePanel";
 import { RequirementsPanel } from "./components/RequirementsPanel";
 import ConsolidationPanel from "./components/ConsolidationPanel";
@@ -80,6 +82,24 @@ import {
   selectRequirementPanelItemsFromSession,
   supersedeRequirementPanelItem,
 } from "./domain/requirementRuntime";
+import {
+  createAuthBoundaryTelemetry,
+  createConsolidationAppliedTelemetry,
+  createConsolidationParkedTelemetry,
+  createMessageSentTelemetry,
+  createPrototypeGeneratedTelemetry,
+  createRequirementApprovedTelemetry,
+  createRequirementBaselinedTelemetry,
+  createRequirementRejectedTelemetry,
+  createRequirementSupersededTelemetry,
+  createWorkshopOpenedTelemetry,
+  missionControlProductId,
+  type MissionControlTelemetryEvent,
+  type MissionControlTelemetrySource,
+  type MissionControlTelemetrySurface,
+  type MissionControlTelemetryTrigger,
+} from "./domain/missionControlTelemetry";
+import type { RequirementPanelItem } from "./domain/requirements";
 import {
   evaluateWorkshopReadiness,
   type WorkshopReadiness,
@@ -119,9 +139,11 @@ import {
   mirrorWorkshopRecordToDisk,
   type DiskBackupResult,
 } from "./persistence/workshopBackup";
+import { createMissionControlTelemetrySink } from "./persistence/missionControlTelemetrySink";
 
 const storageKey = "ai-requirement-workshop:v1-session";
 const seenInsightsStorageKey = "ai-requirement-workshop:v1-seen-agent-insights";
+const missionControlTelemetrySink = createMissionControlTelemetrySink();
 
 type ArtifactNodeData = {
   artifact: WorkshopArtifact;
@@ -166,11 +188,131 @@ const visualizationLabels: Record<VisualizationMode, string> = {
 function App() {
   return (
     <AuthProvider>
+      <MissionControlAuthTelemetryBridge />
       <AuthGate>
         <WorkshopRoom />
       </AuthGate>
     </AuthProvider>
   );
+}
+
+function MissionControlAuthTelemetryBridge() {
+  const { activeOperation, error, session } = useAuth();
+  const previousSessionIdRef = useRef<string | null>(session?.user.id ?? null);
+  const lastRequestedOperationRef = useRef<AuthOperation | null>(null);
+  const reportedErrorsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (!activeOperation) {
+      lastRequestedOperationRef.current = null;
+      return;
+    }
+
+    if (lastRequestedOperationRef.current === activeOperation) {
+      return;
+    }
+
+    lastRequestedOperationRef.current = activeOperation;
+    recordMissionControlTelemetry(
+      createAuthBoundaryTelemetry(
+        {
+          boundary: "remote-api",
+          event: "requested",
+          provider: "local",
+          reason: activeOperation,
+        },
+        {
+          occurredAt: new Date().toISOString(),
+          source: createMissionControlTelemetrySource(
+            "auth-boundary",
+            "user",
+            "MissionControlAuthTelemetryBridge",
+          ),
+        },
+      ),
+    );
+  }, [activeOperation]);
+
+  useEffect(() => {
+    const previousSessionId = previousSessionIdRef.current;
+    const currentSessionId = session?.user.id ?? null;
+
+    if (currentSessionId && currentSessionId !== previousSessionId) {
+      recordMissionControlTelemetry(
+        createAuthBoundaryTelemetry(
+          {
+            boundary: "remote-api",
+            event: "granted",
+            provider: "local",
+          },
+          {
+            occurredAt: session?.establishedAt ?? new Date().toISOString(),
+            source: createMissionControlTelemetrySource(
+              "auth-boundary",
+              "system",
+              "MissionControlAuthTelemetryBridge",
+            ),
+            provenance: {
+              participantId: currentSessionId,
+            },
+          },
+        ),
+      );
+    }
+
+    if (previousSessionId && !currentSessionId) {
+      recordMissionControlTelemetry(
+        createAuthBoundaryTelemetry(
+          {
+            boundary: "remote-api",
+            event: "cleared",
+            provider: "local",
+          },
+          {
+            occurredAt: new Date().toISOString(),
+            source: createMissionControlTelemetrySource(
+              "auth-boundary",
+              "user",
+              "MissionControlAuthTelemetryBridge",
+            ),
+            provenance: {
+              participantId: previousSessionId,
+            },
+          },
+        ),
+      );
+    }
+
+    previousSessionIdRef.current = currentSessionId;
+  }, [session]);
+
+  useEffect(() => {
+    if (!error || reportedErrorsRef.current.has(error)) {
+      return;
+    }
+
+    reportedErrorsRef.current.add(error);
+    recordMissionControlTelemetry(
+      createAuthBoundaryTelemetry(
+        {
+          boundary: "remote-api",
+          event: "failed",
+          provider: "local",
+          reason: error,
+        },
+        {
+          occurredAt: new Date().toISOString(),
+          source: createMissionControlTelemetrySource(
+            "auth-boundary",
+            "system",
+            "MissionControlAuthTelemetryBridge",
+          ),
+        },
+      ),
+    );
+  }, [error]);
+
+  return null;
 }
 
 function WorkshopRoom() {
@@ -214,6 +356,27 @@ function WorkshopRoom() {
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const saveSequenceRef = useRef(0);
+  const openedWorkshopIdRef = useRef<string | null>(null);
+  const workshopOpenTriggerRef =
+    useRef<MissionControlTelemetryTrigger>("restore");
+  const telemetryCorrelationIdRef = useRef(
+    `workshop-runtime-${Date.now().toString(36)}`,
+  );
+
+  const createTelemetryOptions = useCallback(
+    (
+      surface: MissionControlTelemetrySurface,
+      trigger: MissionControlTelemetryTrigger,
+      component: string,
+      occurredAt = new Date().toISOString(),
+    ) => ({
+      occurredAt,
+      source: createMissionControlTelemetrySource(surface, trigger, component),
+      correlationId: telemetryCorrelationIdRef.current,
+      recordId: activeWorkshopId,
+    }),
+    [activeWorkshopId],
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -281,6 +444,21 @@ function WorkshopRoom() {
       return;
     }
 
+    if (openedWorkshopIdRef.current !== session.id) {
+      openedWorkshopIdRef.current = session.id;
+      recordMissionControlTelemetry(
+        createWorkshopOpenedTelemetry(
+          session,
+          createTelemetryOptions(
+            "workshop-room",
+            workshopOpenTriggerRef.current,
+            "WorkshopRoom",
+          ),
+        ),
+      );
+      workshopOpenTriggerRef.current = "restore";
+    }
+
     const record = createWorkshopRecord(session, seenInsightIdsByParticipant);
     workshopRepository.setActiveWorkshopId(record.id);
     setActiveWorkshopIdState(record.id);
@@ -318,7 +496,12 @@ function WorkshopRoom() {
           });
         }
       });
-  }, [isStoreReady, seenInsightIdsByParticipant, session]);
+  }, [
+    createTelemetryOptions,
+    isStoreReady,
+    seenInsightIdsByParticipant,
+    session,
+  ]);
 
   useEffect(() => {
     setReport(generateWorkshopReport(session));
@@ -395,14 +578,27 @@ function WorkshopRoom() {
     setDraft("");
     setPendingAttachments([]);
     setCodexError(null);
-    setSession((current) =>
-      appendPendingCodexHumanMessage(
-        current,
-        message,
-        attachmentsForTurn,
-        submittedAt,
-      ),
+    const sessionWithPendingMessage = appendPendingCodexHumanMessage(
+      session,
+      message,
+      attachmentsForTurn,
+      submittedAt,
     );
+    const submittedMessage = findNewHumanMessage(
+      session,
+      sessionWithPendingMessage,
+      submittedAt,
+    );
+    setSession(sessionWithPendingMessage);
+    if (submittedMessage) {
+      recordMissionControlTelemetry(
+        createMessageSentTelemetry(
+          sessionWithPendingMessage,
+          submittedMessage,
+          createTelemetryOptions("chat", "user", "WorkshopRoom.handleSubmit"),
+        ),
+      );
+    }
     setIsCodexThinking(true);
 
     try {
@@ -445,6 +641,7 @@ function WorkshopRoom() {
 
   const handleCreateWorkshop = useCallback(() => {
     const next = createInitialWorkshopSession();
+    workshopOpenTriggerRef.current = "user";
     setSession(next);
     setPendingAttachments([]);
     setDraft("");
@@ -474,6 +671,7 @@ function WorkshopRoom() {
         const record = parseWorkshopRecordExport(await file.text());
         await workshopRepository.saveRecord(record);
         workshopRepository.setActiveWorkshopId(record.id);
+        workshopOpenTriggerRef.current = "user";
         setSession(record.session);
         setPendingAttachments([]);
         setDraft("");
@@ -507,6 +705,7 @@ function WorkshopRoom() {
       return;
     }
 
+    workshopOpenTriggerRef.current = "user";
     setSession(record.session);
     setPendingAttachments([]);
     setDraft("");
@@ -574,52 +773,183 @@ function WorkshopRoom() {
 
   const handleStatusChange = useCallback(
     (artifactId: string, status: ArtifactStatus) => {
-      setSession((current) =>
-        updateArtifactStatus(current, artifactId, status),
-      );
+      setSession((current) => {
+        const previousArtifact = current.artifacts.find(
+          (artifact) => artifact.id === artifactId,
+        );
+        const next = updateArtifactStatus(current, artifactId, status);
+        const nextArtifact = next.artifacts.find(
+          (artifact) => artifact.id === artifactId,
+        );
+
+        if (
+          previousArtifact?.type === "requirement" &&
+          nextArtifact?.type === "requirement" &&
+          previousArtifact.status !== nextArtifact.status
+        ) {
+          emitRequirementStatusTelemetry(
+            next,
+            nextArtifact,
+            previousArtifact.status,
+            createTelemetryOptions(
+              "canvas",
+              "user",
+              "WorkshopRoom.handleStatusChange",
+            ),
+          );
+        }
+
+        return next;
+      });
     },
-    [],
+    [createTelemetryOptions],
   );
 
-  const handleApplyConsolidation = useCallback((suggestionId: string) => {
-    setSession((current) => {
-      try {
-        return applyRuntimeConsolidationSuggestion(current, suggestionId, {
-          actorId: participantIds.facilitator,
-        });
-      } catch {
-        return current;
-      }
-    });
-  }, []);
+  const handleApplyConsolidation = useCallback(
+    (suggestionId: string) => {
+      setSession((current) => {
+        const suggestion = selectConsolidationPanelSuggestionsFromSession(
+          current,
+        ).find((candidate) => candidate.id === suggestionId);
 
-  const handleParkConsolidation = useCallback((suggestionId: string) => {
-    setSession((current) => {
-      try {
-        return parkRuntimeConsolidationSuggestion(current, suggestionId, {
-          actorId: participantIds.facilitator,
-        });
-      } catch {
-        return current;
-      }
-    });
-  }, []);
+        try {
+          const next = applyRuntimeConsolidationSuggestion(
+            current,
+            suggestionId,
+            {
+              actorId: participantIds.facilitator,
+            },
+          );
+          if (suggestion) {
+            const previousArtifactIds = new Set(
+              current.artifacts.map((artifact) => artifact.id),
+            );
+            const outputArtifactIds = next.artifacts
+              .filter(
+                (artifact) =>
+                  !previousArtifactIds.has(artifact.id) &&
+                  artifact.type === "requirement",
+              )
+              .map((artifact) => artifact.id);
+            recordMissionControlTelemetry(
+              createConsolidationAppliedTelemetry(
+                next,
+                {
+                  consolidationId: suggestion.id,
+                  inputArtifactIds: suggestion.sourceArtifactIds,
+                  outputArtifactIds,
+                  approvedRequirementIds: outputArtifactIds,
+                  summaryLength: suggestion.rationale?.length,
+                },
+                createTelemetryOptions(
+                  "canvas",
+                  "user",
+                  "WorkshopRoom.handleApplyConsolidation",
+                ),
+              ),
+            );
+          }
+          return next;
+        } catch {
+          return current;
+        }
+      });
+    },
+    [createTelemetryOptions],
+  );
+
+  const handleParkConsolidation = useCallback(
+    (suggestionId: string) => {
+      setSession((current) => {
+        const suggestion = selectConsolidationPanelSuggestionsFromSession(
+          current,
+        ).find((candidate) => candidate.id === suggestionId);
+
+        try {
+          const next = parkRuntimeConsolidationSuggestion(
+            current,
+            suggestionId,
+            {
+              actorId: participantIds.facilitator,
+            },
+          );
+          if (suggestion) {
+            recordMissionControlTelemetry(
+              createConsolidationParkedTelemetry(
+                next,
+                {
+                  consolidationId: suggestion.id,
+                  inputArtifactIds: suggestion.sourceArtifactIds,
+                  outputArtifactIds: [],
+                  approvedRequirementIds: [],
+                  summaryLength: suggestion.rationale?.length,
+                },
+                createTelemetryOptions(
+                  "canvas",
+                  "user",
+                  "WorkshopRoom.handleParkConsolidation",
+                ),
+              ),
+            );
+          }
+          return next;
+        } catch {
+          return current;
+        }
+      });
+    },
+    [createTelemetryOptions],
+  );
 
   const handleGeneratePrototype = useCallback(() => {
-    setSession((current) =>
-      generatePrototypeFromWorkshop(current, {
+    setSession((current) => {
+      const generatedAt = new Date().toISOString();
+      const next = generatePrototypeFromWorkshop(current, {
         title: `${current.title} prototype`,
         actorId: participantIds.facilitator,
-        at: new Date().toISOString(),
+        at: generatedAt,
         sourceModel: {
           provider: "codex",
           model: codexStatus.model,
           promptVersion: "prototype-generation-v1",
           generatedBy: participantIds.facilitator,
         },
-      }),
-    );
-  }, [codexStatus.model]);
+      });
+      const prototype = next.prototypes.at(-1);
+      const version = prototype?.versions.find(
+        (candidate) => candidate.version === prototype.currentVersion,
+      );
+
+      if (prototype && version) {
+        recordMissionControlTelemetry(
+          createPrototypeGeneratedTelemetry(
+            next,
+            {
+              prototypeId: version.id,
+              format: "html",
+              sourceArtifactIds: version.requirementRefs
+                .map((requirement) => requirement.sourceArtifactId)
+                .filter((artifactId): artifactId is string =>
+                  Boolean(artifactId),
+                ),
+              requirementIds: version.requirementRefs.map(
+                (requirement) => requirement.requirementId,
+              ),
+              targetSurface: "prototype-panel",
+            },
+            createTelemetryOptions(
+              "codex-bridge",
+              "codex",
+              "WorkshopRoom.handleGeneratePrototype",
+              generatedAt,
+            ),
+          ),
+        );
+      }
+
+      return next;
+    });
+  }, [codexStatus.model, createTelemetryOptions]);
 
   const handlePrototypeFeedback = useCallback(
     (input: PrototypeFeedbackInput) => {
@@ -631,6 +961,107 @@ function WorkshopRoom() {
       );
     },
     [],
+  );
+
+  const handleApproveRequirement = useCallback(
+    (requirement: RequirementPanelItem) => {
+      setSession((current) =>
+        updateRequirementWithTelemetry(
+          current,
+          requirement.id,
+          (sessionToUpdate) =>
+            approveRequirementPanelItem(sessionToUpdate, requirement, {
+              actorId: participantIds.human,
+            }),
+          (next, nextRequirement, previousStatus) =>
+            createRequirementApprovedTelemetry(next, nextRequirement, {
+              ...createTelemetryOptions(
+                "canvas",
+                "user",
+                "WorkshopRoom.handleApproveRequirement",
+              ),
+              previousStatus,
+            }),
+        ),
+      );
+    },
+    [createTelemetryOptions],
+  );
+
+  const handleRejectRequirement = useCallback(
+    (requirement: RequirementPanelItem) => {
+      setSession((current) =>
+        updateRequirementWithTelemetry(
+          current,
+          requirement.id,
+          (sessionToUpdate) =>
+            rejectRequirementPanelItem(sessionToUpdate, requirement, {
+              actorId: participantIds.human,
+            }),
+          (next, nextRequirement, previousStatus) =>
+            createRequirementRejectedTelemetry(next, nextRequirement, {
+              ...createTelemetryOptions(
+                "canvas",
+                "user",
+                "WorkshopRoom.handleRejectRequirement",
+              ),
+              previousStatus,
+            }),
+        ),
+      );
+    },
+    [createTelemetryOptions],
+  );
+
+  const handleSupersedeRequirement = useCallback(
+    (requirement: RequirementPanelItem) => {
+      setSession((current) =>
+        updateRequirementWithTelemetry(
+          current,
+          requirement.id,
+          (sessionToUpdate) =>
+            supersedeRequirementPanelItem(sessionToUpdate, requirement, {
+              actorId: participantIds.human,
+              rationale: "Marked as superseded from the requirements panel.",
+            }),
+          (next, nextRequirement, previousStatus) =>
+            createRequirementSupersededTelemetry(next, nextRequirement, {
+              ...createTelemetryOptions(
+                "canvas",
+                "user",
+                "WorkshopRoom.handleSupersedeRequirement",
+              ),
+              previousStatus,
+            }),
+        ),
+      );
+    },
+    [createTelemetryOptions],
+  );
+
+  const handleBaselineRequirement = useCallback(
+    (requirement: RequirementPanelItem) => {
+      setSession((current) =>
+        updateRequirementWithTelemetry(
+          current,
+          requirement.id,
+          (sessionToUpdate) =>
+            baselineRequirementPanelItem(sessionToUpdate, requirement, {
+              actorId: participantIds.human,
+            }),
+          (next, nextRequirement, previousStatus) =>
+            createRequirementBaselinedTelemetry(next, nextRequirement, {
+              ...createTelemetryOptions(
+                "canvas",
+                "user",
+                "WorkshopRoom.handleBaselineRequirement",
+              ),
+              previousStatus,
+            }),
+        ),
+      );
+    },
+    [createTelemetryOptions],
   );
 
   const artifactPositions = useMemo(
@@ -861,40 +1292,10 @@ function WorkshopRoom() {
             onSelectRequirement={(requirement) =>
               handleSelectArtifact(requirement.id)
             }
-            onApprove={(requirement) =>
-              setSession((current) =>
-                approveRequirementPanelItem(current, requirement, {
-                  actorId: participantIds.human,
-                }),
-              )
-            }
-            onReject={(requirement) =>
-              setSession((current) =>
-                rejectRequirementPanelItem(current, requirement, {
-                  actorId: participantIds.human,
-                }),
-              )
-            }
-            onSupersede={(requirement) =>
-              setSession((current) =>
-                supersedeRequirementPanelItem(current, requirement, {
-                  actorId: participantIds.human,
-                  rationale:
-                    "Marked as superseded from the requirements panel.",
-                }),
-              )
-            }
-            onBaseline={(requirement) =>
-              setSession((current) => {
-                try {
-                  return baselineRequirementPanelItem(current, requirement, {
-                    actorId: participantIds.human,
-                  });
-                } catch {
-                  return current;
-                }
-              })
-            }
+            onApprove={handleApproveRequirement}
+            onReject={handleRejectRequirement}
+            onSupersede={handleSupersedeRequirement}
+            onBaseline={handleBaselineRequirement}
           />
           <ConsolidationPanel
             suggestions={consolidationSuggestions}
@@ -1156,6 +1557,121 @@ function BackupStatusPill({ status }: { status: BackupStatus }) {
       </div>
     </div>
   );
+}
+
+function updateRequirementWithTelemetry(
+  current: WorkshopSession,
+  requirementId: string,
+  update: (session: WorkshopSession) => WorkshopSession,
+  createEvent: (
+    next: WorkshopSession,
+    requirement: WorkshopArtifact,
+    previousStatus: ArtifactStatus | undefined,
+  ) => MissionControlTelemetryEvent,
+) {
+  const previousRequirement = current.artifacts.find(
+    (artifact) =>
+      artifact.id === requirementId && artifact.type === "requirement",
+  );
+
+  try {
+    const next = update(current);
+    const nextRequirement = next.artifacts.find(
+      (artifact) =>
+        artifact.id === requirementId && artifact.type === "requirement",
+    );
+
+    if (nextRequirement) {
+      try {
+        recordMissionControlTelemetry(
+          createEvent(next, nextRequirement, previousRequirement?.status),
+        );
+      } catch {
+        return next;
+      }
+    }
+
+    return next;
+  } catch {
+    return current;
+  }
+}
+
+function emitRequirementStatusTelemetry(
+  session: WorkshopSession,
+  requirement: WorkshopArtifact,
+  previousStatus: ArtifactStatus,
+  options: Parameters<typeof createRequirementApprovedTelemetry>[2],
+) {
+  try {
+    if (requirement.status === "accepted") {
+      recordMissionControlTelemetry(
+        createRequirementApprovedTelemetry(session, requirement, {
+          ...options,
+          previousStatus,
+        }),
+      );
+      return;
+    }
+
+    if (requirement.status === "rejected") {
+      recordMissionControlTelemetry(
+        createRequirementRejectedTelemetry(session, requirement, {
+          ...options,
+          previousStatus,
+        }),
+      );
+    }
+  } catch {
+    return;
+  }
+}
+
+function findNewHumanMessage(
+  previous: WorkshopSession,
+  next: WorkshopSession,
+  createdAt: string,
+) {
+  const previousMessageIds = new Set(
+    previous.messages.map((message) => message.id),
+  );
+
+  return next.messages.find(
+    (message) =>
+      !previousMessageIds.has(message.id) &&
+      message.kind === "human-input" &&
+      message.createdAt === createdAt,
+  );
+}
+
+function recordMissionControlTelemetry(event: MissionControlTelemetryEvent) {
+  void missionControlTelemetrySink.record(event).catch(() => undefined);
+}
+
+function createMissionControlTelemetrySource(
+  surface: MissionControlTelemetrySurface,
+  trigger: MissionControlTelemetryTrigger,
+  component?: string,
+): MissionControlTelemetrySource {
+  return {
+    product: missionControlProductId,
+    surface,
+    trigger,
+    runtime: missionControlRuntime(),
+    component,
+  };
+}
+
+function missionControlRuntime(): MissionControlTelemetrySource["runtime"] {
+  if (import.meta.env.MODE === "test") {
+    return "test";
+  }
+
+  if (import.meta.env.DEV) {
+    return "vite";
+  }
+
+  return typeof window === "undefined" ? "unknown" : "browser";
 }
 
 function ArtifactNode({ data }: NodeProps<Node<ArtifactNodeData>>) {

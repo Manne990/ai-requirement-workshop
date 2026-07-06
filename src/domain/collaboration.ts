@@ -219,6 +219,69 @@ export function createCollaborationProjection(
   };
 }
 
+export function describeCollaborationProjection(
+  projection: CollaborationProjection,
+): string {
+  return JSON.stringify(
+    {
+      workshopId: projection.session.id,
+      activeWorkshopId: projection.activeWorkshopId,
+      metadataRevision: projection.metadataRevision,
+      appliedEventIds: projection.appliedEventIds,
+      messages: projection.session.messages.map((message) => ({
+        id: message.id,
+        kind: message.kind,
+        createdAt: message.createdAt,
+      })),
+      artifacts: projection.session.artifacts.map((artifact) => ({
+        id: artifact.id,
+        type: artifact.type,
+        status: artifact.status,
+        updatedAt: artifact.updatedAt,
+        revision: projection.artifactRevisions[artifact.id] ?? 0,
+      })),
+      conflicts: projection.conflicts.map((conflict) => ({
+        eventId: conflict.eventId,
+        kind: conflict.kind,
+        targetType: conflict.targetType,
+        targetId: conflict.targetId,
+        expectedRevision: conflict.expectedRevision,
+        actualRevision: conflict.actualRevision,
+        localValue: conflict.localValue,
+        incomingValue: conflict.incomingValue,
+      })),
+      provenance: projection.provenance.map((entry) => ({
+        eventId: entry.eventId,
+        targetType: entry.targetType,
+        targetId: entry.targetId,
+        revision: entry.revision,
+        changedAt: entry.changedAt,
+        actor: entry.actor.displayName,
+      })),
+    },
+    null,
+    2,
+  );
+}
+
+export function describePresenceSessions(
+  sessions: WorkshopPresenceSession[],
+): string {
+  return JSON.stringify(
+    [...sessions].sort(comparePresenceSessions).map((session) => ({
+      sessionId: session.sessionId,
+      clientId: session.clientId,
+      participantId: session.participantId,
+      displayName: session.displayName,
+      status: session.status,
+      connectedAt: session.connectedAt,
+      lastSeenAt: session.lastSeenAt,
+    })),
+    null,
+    2,
+  );
+}
+
 export function applyCollaborationEvent(
   projection: CollaborationProjection,
   event: WorkshopCollaborationEvent,
