@@ -17,6 +17,21 @@ describe("serverWorkshopStore", () => {
       }),
     ).toBe(true);
     expect(
+      isConfiguredServerWorkshopStore({
+        MODE: "production",
+        PROD: true,
+        VITE_WORKSHOP_RECORD_ENDPOINT: " /api/workshops ",
+      }),
+    ).toBe(false);
+    expect(
+      isConfiguredServerWorkshopStore({
+        MODE: "production",
+        PROD: "true",
+        VITE_WORKSHOP_RECORD_ENDPOINT: " /api/workshops ",
+        VITE_ALLOW_UNAUTHENTICATED_WORKSHOP_RECORD_ENDPOINT: "true",
+      }),
+    ).toBe(true);
+    expect(
       serverWorkshopEndpoint({
         VITE_WORKSHOP_RECORD_ENDPOINT: " /api/workshops ",
       }),

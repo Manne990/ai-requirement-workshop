@@ -15,7 +15,10 @@ describe("workshopRecordsApi", () => {
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "workshop-records-api-"));
-    env = { AI_REQUIREMENT_WORKSHOP_SERVER_STORE_DIR: tempDir };
+    env = {
+      AI_REQUIREMENT_WORKSHOP_SERVER_STORE_DIR: tempDir,
+      NODE_ENV: "test",
+    };
   });
 
   afterEach(async () => {
@@ -112,6 +115,39 @@ describe("workshopRecordsApi", () => {
       body: {
         error: "Server-backed workshop records require organizationId.",
       },
+    });
+  });
+
+  it("fails closed in production unless unauthenticated file storage is explicitly enabled", async () => {
+    await expect(
+      handleWorkshopRecordsRequest(
+        { method: "GET", url: "/api/workshops" },
+        {
+          AI_REQUIREMENT_WORKSHOP_SERVER_STORE_DIR: tempDir,
+          NODE_ENV: "production",
+        },
+      ),
+    ).resolves.toEqual({
+      statusCode: 501,
+      body: {
+        error:
+          "Server-backed workshop records require authenticated storage in production.",
+      },
+    });
+
+    await expect(
+      handleWorkshopRecordsRequest(
+        { method: "GET", url: "/api/workshops" },
+        {
+          AI_REQUIREMENT_WORKSHOP_SERVER_STORE_DIR: tempDir,
+          NODE_ENV: "production",
+          AI_REQUIREMENT_WORKSHOP_ALLOW_UNAUTHENTICATED_WORKSHOP_RECORDS:
+            "true",
+        },
+      ),
+    ).resolves.toMatchObject({
+      statusCode: 200,
+      body: { summaries: [] },
     });
   });
 });

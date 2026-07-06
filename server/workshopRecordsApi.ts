@@ -52,6 +52,16 @@ export async function handleWorkshopRecordsRequest(
   request: WorkshopRecordsApiRequest,
   env: WorkshopRecordsApiEnv = process.env,
 ): Promise<WorkshopRecordsApiResponse> {
+  if (!isUnauthenticatedWorkshopRecordsApiEnabled(env)) {
+    return {
+      statusCode: 501,
+      body: {
+        error:
+          "Server-backed workshop records require authenticated storage in production.",
+      },
+    };
+  }
+
   const method = request.method ?? "GET";
   const recordId = readRecordId(request.url);
 
@@ -116,6 +126,20 @@ export function workshopRecordsDir(env: WorkshopRecordsApiEnv = process.env) {
     env.AI_REQUIREMENT_WORKSHOP_SERVER_STORE_DIR?.trim() ||
     join(homedir(), ".gaia", "ai-requirement-workshop", "server-workshops")
   );
+}
+
+export function isUnauthenticatedWorkshopRecordsApiEnabled(
+  env: WorkshopRecordsApiEnv = process.env,
+) {
+  return (
+    !isProductionServerEnv(env) ||
+    env.AI_REQUIREMENT_WORKSHOP_ALLOW_UNAUTHENTICATED_WORKSHOP_RECORDS ===
+      "true"
+  );
+}
+
+function isProductionServerEnv(env: WorkshopRecordsApiEnv) {
+  return env.NODE_ENV === "production" || env.VERCEL_ENV === "production";
 }
 
 async function readAllWorkshopRecords(env: WorkshopRecordsApiEnv) {

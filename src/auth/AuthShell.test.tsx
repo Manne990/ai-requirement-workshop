@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { AuthGate } from "./AuthGate";
 import { AuthProvider } from "./AuthProvider";
 import { AuthShell } from "./AuthShell";
+import { frontendAuthProductionError } from "./authRuntimePolicy";
 import { createFrontendAuthClient } from "./frontendAuthClient";
 
 describe("AuthShell", () => {
@@ -128,6 +129,31 @@ describe("AuthShell", () => {
     expect(
       await screen.findByLabelText(/organization workshop room/i),
     ).toBeInTheDocument();
+  });
+
+  it("blocks frontend-only sessions from entering the workshop in production", () => {
+    render(
+      <AuthProvider
+        initialSession={{
+          user: {
+            id: "auth-user:owner@example.com",
+            email: "owner@example.com",
+            displayName: "Workshop Owner",
+          },
+          establishedAt: "2026-07-06T08:00:00.000Z",
+          assurance: "frontend-only",
+        }}
+      >
+        <AuthGate env={{ PROD: true, MODE: "production" }}>
+          <section aria-label="Organization workshop room">Workshop</section>
+        </AuthGate>
+      </AuthProvider>,
+    );
+
+    expect(
+      screen.queryByLabelText(/organization workshop room/i),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(frontendAuthProductionError)).toBeInTheDocument();
   });
 });
 

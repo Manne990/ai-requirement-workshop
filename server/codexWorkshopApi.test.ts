@@ -4,6 +4,7 @@ import {
   codexStatusPayload,
   createServerSafeWorkshopPayload,
   createCodexWorkshopTurn,
+  isUnauthenticatedCodexWorkshopApiEnabled,
   parseCodexTurn,
 } from "./codexWorkshopApi.js";
 
@@ -17,6 +18,21 @@ describe("codexWorkshopApi", () => {
     });
     expect(JSON.stringify(status)).not.toContain("secret-token");
     expect(codexApiKey({ CODEX_API_TOKEN: "alias-token" })).toBe("alias-token");
+  });
+
+  it("fails closed for unauthenticated Codex turns in production unless explicitly enabled", () => {
+    expect(isUnauthenticatedCodexWorkshopApiEnabled({ NODE_ENV: "test" })).toBe(
+      true,
+    );
+    expect(
+      isUnauthenticatedCodexWorkshopApiEnabled({ NODE_ENV: "production" }),
+    ).toBe(false);
+    expect(
+      isUnauthenticatedCodexWorkshopApiEnabled({
+        VERCEL_ENV: "production",
+        AI_REQUIREMENT_WORKSHOP_ALLOW_UNAUTHENTICATED_CODEX_API: "true",
+      }),
+    ).toBe(true);
   });
 
   it("parses JSON even when a model wraps the object in explanatory text", () => {

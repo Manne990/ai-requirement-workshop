@@ -38,6 +38,15 @@ export function codexStatusPayload(env: Env = process.env) {
   };
 }
 
+export function isUnauthenticatedCodexWorkshopApiEnabled(
+  env: Env = process.env,
+) {
+  return (
+    !isProductionServerEnv(env) ||
+    env.AI_REQUIREMENT_WORKSHOP_ALLOW_UNAUTHENTICATED_CODEX_API === "true"
+  );
+}
+
 export async function createCodexWorkshopTurn(
   apiKey: string,
   payload: IncomingBody,
@@ -299,4 +308,8 @@ function redactServerSensitiveText(text: string) {
     )
     .replace(/\b(?:19|20)?\d{6}[-+]\d{4}\b/g, "[REDACTED:personal-id]")
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[REDACTED:email]");
+}
+
+function isProductionServerEnv(env: Env) {
+  return env.NODE_ENV === "production" || env.VERCEL_ENV === "production";
 }

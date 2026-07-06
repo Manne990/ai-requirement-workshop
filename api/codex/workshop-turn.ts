@@ -1,6 +1,7 @@
 import {
   codexApiKey,
   createCodexWorkshopTurn,
+  isUnauthenticatedCodexWorkshopApiEnabled,
   type IncomingBody,
 } from "../../server/codexWorkshopApi.js";
 
@@ -21,6 +22,14 @@ export default async function handler(
 ) {
   if (request.method !== "POST") {
     response.status(405).json({ error: "Method not allowed." });
+    return;
+  }
+
+  if (!isUnauthenticatedCodexWorkshopApiEnabled()) {
+    response.status(501).json({
+      error:
+        "Codex workshop turns require an authenticated server boundary in production.",
+    });
     return;
   }
 

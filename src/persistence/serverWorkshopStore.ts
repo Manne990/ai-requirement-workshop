@@ -71,19 +71,43 @@ export function createServerWorkshopStore(
 }
 
 export function isConfiguredServerWorkshopStore(
-  env: Record<string, string | undefined> = import.meta.env,
+  env: Record<string, unknown> = import.meta.env,
 ) {
-  return Boolean(env.VITE_WORKSHOP_RECORD_ENDPOINT?.trim());
+  return Boolean(
+    readString(env.VITE_WORKSHOP_RECORD_ENDPOINT).trim() &&
+    isUnauthenticatedServerStoreAllowed(env),
+  );
 }
 
 export function serverWorkshopEndpoint(
-  env: Record<string, string | undefined> = import.meta.env,
+  env: Record<string, unknown> = import.meta.env,
 ) {
-  return env.VITE_WORKSHOP_RECORD_ENDPOINT?.trim() || defaultEndpoint;
+  return (
+    readString(env.VITE_WORKSHOP_RECORD_ENDPOINT).trim() || defaultEndpoint
+  );
 }
 
 function normalizeEndpoint(endpoint: string) {
   return endpoint.replace(/\/+$/, "") || defaultEndpoint;
+}
+
+function isUnauthenticatedServerStoreAllowed(env: Record<string, unknown>) {
+  return (
+    !isProductionRuntime(env) ||
+    env.VITE_ALLOW_UNAUTHENTICATED_WORKSHOP_RECORD_ENDPOINT === "true"
+  );
+}
+
+function isProductionRuntime(env: Record<string, unknown>) {
+  return readBoolean(env.PROD) || env.MODE === "production";
+}
+
+function readBoolean(value: unknown) {
+  return value === true || value === "true";
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" ? value : "";
 }
 
 function recordUrl(endpoint: string, id: string) {

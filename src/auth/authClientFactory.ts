@@ -1,8 +1,12 @@
 import { createFrontendAuthClient } from "./frontendAuthClient";
 import { createSupabaseAuthClient } from "./supabaseAuthClient";
 import type { AuthClient } from "./types";
+import {
+  frontendAuthProductionError,
+  isFrontendAuthAllowed,
+} from "./authRuntimePolicy";
 
-type BrowserEnv = Record<string, string | undefined>;
+type BrowserEnv = Record<string, unknown>;
 
 export function createConfiguredAuthClient(
   env: BrowserEnv = import.meta.env,
@@ -12,8 +16,8 @@ export function createConfiguredAuthClient(
 
   if (isConfiguredSupabase(supabaseUrl, supabaseAnonKey)) {
     return createLazySupabaseAuthClient({
-      supabaseUrl: supabaseUrl!,
-      supabaseAnonKey: supabaseAnonKey!,
+      supabaseUrl: supabaseUrl as string,
+      supabaseAnonKey: supabaseAnonKey as string,
       redirectTo:
         typeof window === "undefined" ? undefined : window.location.origin,
       passwordResetRedirectTo:
@@ -23,7 +27,9 @@ export function createConfiguredAuthClient(
     });
   }
 
-  return createFrontendAuthClient();
+  return isFrontendAuthAllowed(env)
+    ? createFrontendAuthClient()
+    : createDisabledProductionAuthClient();
 }
 
 function createLazySupabaseAuthClient({
@@ -73,13 +79,38 @@ function createLazySupabaseAuthClient({
 }
 
 export function isConfiguredSupabase(
-  supabaseUrl: string | undefined,
-  supabaseAnonKey: string | undefined,
+  supabaseUrl: unknown,
+  supabaseAnonKey: unknown,
 ) {
   return Boolean(
+    typeof supabaseUrl === "string" &&
+    typeof supabaseAnonKey === "string" &&
     supabaseUrl &&
     supabaseAnonKey &&
     !supabaseUrl.includes("example-project") &&
     supabaseAnonKey !== "public-anon-key",
   );
+}
+
+function createDisabledProductionAuthClient(): AuthClient {
+  return {
+    async getCurrentSession() {
+      return null;
+    },
+    async signIn() {
+      throw new Error(frontendAuthProductionError);
+    },
+    async register() {
+      throw new Error(frontendAuthProductionError);
+    },
+    async signOut() {
+      return;
+    },
+    async requestPasswordReset() {
+      throw new Error(frontendAuthProductionError);
+    },
+    async completePasswordReset() {
+      throw new Error(frontendAuthProductionError);
+    },
+  };
 }
