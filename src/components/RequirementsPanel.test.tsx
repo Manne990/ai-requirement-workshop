@@ -5,6 +5,7 @@ import {
   selectRequirementPanelItems,
   type RequirementPanelItem,
 } from "../domain/requirements";
+import type { RequirementQualityFinding } from "../domain/requirementQuality";
 import type { WorkshopArtifact } from "../domain/workshop";
 
 describe("RequirementsPanel", () => {
@@ -103,6 +104,23 @@ describe("RequirementsPanel", () => {
     ]);
     expect(selected[0]?.sourceMessageIds).toEqual(["message-1"]);
   });
+
+  it("shows quality suggestions on affected requirement cards", () => {
+    render(
+      <RequirementsPanel
+        requirements={requirements}
+        qualityFindings={qualityFindings}
+      />,
+    );
+
+    const candidate = group("Candidate");
+
+    expect(candidate).toHaveTextContent("2 quality suggestions");
+    expect(candidate).toHaveTextContent("1 blocking");
+    expect(candidate).toHaveTextContent(
+      "What measurable acceptance check proves this requirement?",
+    );
+  });
 });
 
 const requirements: RequirementPanelItem[] = [
@@ -160,6 +178,31 @@ const requirements: RequirementPanelItem[] = [
     sourceArtifactIds: ["artifact-4"],
     sourceMessageIds: [],
     history: [],
+  },
+];
+
+const qualityFindings: RequirementQualityFinding[] = [
+  {
+    id: "quality-req-candidate-1",
+    kind: "missing-acceptance-criteria",
+    severity: "blocker",
+    artifactId: "req-candidate",
+    relatedArtifactIds: [],
+    title: "Missing acceptance criteria",
+    detail: "The requirement has no acceptance criteria.",
+    question: "What measurable acceptance check proves this requirement?",
+    diagnostics: [],
+  },
+  {
+    id: "quality-req-candidate-2",
+    kind: "missing-non-functional-concern",
+    severity: "warning",
+    artifactId: "req-candidate",
+    relatedArtifactIds: [],
+    title: "Missing non-functional concern",
+    detail: "No non-functional concern is visible.",
+    question: "Which reliability, security, or performance concern applies?",
+    diagnostics: [],
   },
 ];
 

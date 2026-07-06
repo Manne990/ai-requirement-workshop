@@ -122,6 +122,7 @@ import {
   evaluateWorkshopReadiness,
   type WorkshopReadiness,
 } from "./domain/readiness";
+import { evaluateRequirementQuality } from "./domain/requirementQuality";
 import {
   createInitialWorkshopSession,
   generateWorkshopReport,
@@ -825,6 +826,10 @@ function WorkshopRoom() {
   const requirementPanelItems = useMemo(
     () => selectRequirementPanelItemsFromSession(session),
     [session],
+  );
+  const requirementQualityFindings = useMemo(
+    () => evaluateRequirementQuality(session.artifacts),
+    [session.artifacts],
   );
 
   const consolidationArtifacts = useMemo(
@@ -1736,6 +1741,7 @@ function WorkshopRoom() {
           />
           <RequirementsPanel
             requirements={requirementPanelItems}
+            qualityFindings={requirementQualityFindings}
             selectedRequirementId={selectedArtifact?.id}
             onSelectRequirement={(requirement) =>
               handleSelectArtifact(requirement.id)

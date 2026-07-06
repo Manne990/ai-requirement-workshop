@@ -221,6 +221,52 @@
   background: rgba(255, 255, 255, 0.04);
 }
 
+.requirement-card__quality {
+  display: grid;
+  gap: 7px;
+  border: 1px solid rgba(125, 211, 252, 0.26);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(14, 165, 233, 0.08);
+  color: var(--color-text, #dbe7ef);
+}
+
+.requirement-card__quality.has-blockers {
+  border-color: rgba(251, 113, 133, 0.36);
+  background: rgba(251, 113, 133, 0.09);
+}
+
+.requirement-card__quality > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--color-heading, #f7fbff);
+  font-size: 0.7rem;
+}
+
+.requirement-card__quality strong,
+.requirement-card__quality span {
+  font-weight: 800;
+}
+
+.requirement-card__quality span {
+  border: 1px solid rgba(251, 113, 133, 0.38);
+  border-radius: 999px;
+  padding: 2px 6px;
+  color: #fecdd3;
+}
+
+.requirement-card__quality ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 16px;
+  color: var(--color-muted, #91a4b7);
+  font-size: 0.72rem;
+  line-height: 1.34;
+}
+
 .requirement-card__actions {
   flex-wrap: wrap;
 }

@@ -1,3 +1,4 @@
+import { evaluateRequirementQuality } from "./requirementQuality";
 import type { ArtifactType, WorkshopSession } from "./workshop";
 
 export type ReadinessLevel = "early" | "shaping" | "ready";
@@ -27,6 +28,7 @@ export function evaluateWorkshopReadiness(
     checkRisksHandled(session),
     checkOpenQuestions(session),
     checkTraceableReportMaterial(session),
+    checkRequirementQuality(session),
   ];
 
   const score = Math.round(
@@ -154,6 +156,26 @@ function checkTraceableReportMaterial(
         : accepted.length === 0
           ? "Accept at least one artifact before report readiness can be assessed."
           : "Some accepted artifacts lack source references.",
+  };
+}
+
+function checkRequirementQuality(session: WorkshopSession): ReadinessCheck {
+  const findings = evaluateRequirementQuality(session.artifacts);
+  const blockers = findings.filter((finding) => finding.severity === "blocker");
+  const requirementCount = session.artifacts.filter(
+    (artifact) => artifact.type === "requirement",
+  ).length;
+
+  return {
+    id: "requirement-quality",
+    label: "Requirement quality checked",
+    passed: requirementCount > 0 && blockers.length === 0,
+    detail:
+      requirementCount === 0
+        ? "No requirements have been captured for quality review."
+        : blockers.length === 0
+          ? `${findings.length} quality suggestion${findings.length === 1 ? "" : "s"} visible; no blockers.`
+          : `${blockers.length} blocking requirement quality issue${blockers.length === 1 ? "" : "s"} need review.`,
   };
 }
 

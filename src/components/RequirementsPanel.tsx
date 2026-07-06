@@ -1,4 +1,11 @@
-import { Archive, Check, GitCompareArrows, History, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Archive,
+  Check,
+  GitCompareArrows,
+  History,
+  X,
+} from "lucide-react";
 import "./RequirementsPanel.css";
 import {
   groupRequirementsByLifecycle,
@@ -7,11 +14,13 @@ import {
   type RequirementLifecycleStatus,
   type RequirementPanelItem,
 } from "../domain/requirements";
+import type { RequirementQualityFinding } from "../domain/requirementQuality";
 
 type RequirementAction = "approve" | "reject" | "supersede" | "baseline";
 
 export type RequirementsPanelProps = {
   requirements: RequirementPanelItem[];
+  qualityFindings?: RequirementQualityFinding[];
   selectedRequirementId?: string;
   onSelectRequirement?: (requirement: RequirementPanelItem) => void;
   onApprove?: (requirement: RequirementPanelItem) => void;
@@ -29,6 +38,7 @@ const statusSummaryOrder: RequirementLifecycleStatus[] = [
 
 export function RequirementsPanel({
   requirements,
+  qualityFindings = [],
   selectedRequirementId,
   onSelectRequirement,
   onApprove,
@@ -80,6 +90,7 @@ export function RequirementsPanel({
               key={status}
               status={status}
               requirements={groupedRequirements[status]}
+              qualityFindings={qualityFindings}
               selectedRequirementId={selectedRequirementId}
               onSelectRequirement={onSelectRequirement}
               onApprove={onApprove}
@@ -97,6 +108,7 @@ export function RequirementsPanel({
 function RequirementGroup({
   status,
   requirements,
+  qualityFindings,
   selectedRequirementId,
   onSelectRequirement,
   onApprove,
@@ -106,6 +118,7 @@ function RequirementGroup({
 }: {
   status: RequirementLifecycleStatus;
   requirements: RequirementPanelItem[];
+  qualityFindings: RequirementQualityFinding[];
   selectedRequirementId?: string;
   onSelectRequirement?: (requirement: RequirementPanelItem) => void;
   onApprove?: (requirement: RequirementPanelItem) => void;
@@ -134,6 +147,9 @@ function RequirementGroup({
             <RequirementCard
               key={requirement.id}
               requirement={requirement}
+              qualityFindings={qualityFindings.filter(
+                (finding) => finding.artifactId === requirement.id,
+              )}
               isSelected={requirement.id === selectedRequirementId}
               onSelectRequirement={onSelectRequirement}
               onApprove={onApprove}
@@ -150,6 +166,7 @@ function RequirementGroup({
 
 function RequirementCard({
   requirement,
+  qualityFindings,
   isSelected,
   onSelectRequirement,
   onApprove,
@@ -158,6 +175,7 @@ function RequirementCard({
   onBaseline,
 }: {
   requirement: RequirementPanelItem;
+  qualityFindings: RequirementQualityFinding[];
   isSelected: boolean;
   onSelectRequirement?: (requirement: RequirementPanelItem) => void;
   onApprove?: (requirement: RequirementPanelItem) => void;
@@ -168,6 +186,9 @@ function RequirementCard({
   const sourceCount =
     requirement.sourceArtifactIds.length + requirement.sourceMessageIds.length;
   const latestHistory = requirement.history.at(-1);
+  const blockingFindingCount = qualityFindings.filter(
+    (finding) => finding.severity === "blocker",
+  ).length;
 
   return (
     <article
@@ -217,6 +238,31 @@ function RequirementCard({
           {requirement.tags.slice(0, 4).map((tag) => (
             <span key={tag}>{tag}</span>
           ))}
+        </div>
+      ) : null}
+
+      {qualityFindings.length > 0 ? (
+        <div
+          className={`requirement-card__quality${
+            blockingFindingCount > 0 ? " has-blockers" : ""
+          }`}
+          aria-label={`${requirement.title} quality suggestions`}
+        >
+          <div>
+            <AlertTriangle aria-hidden="true" size={14} />
+            <strong>
+              {qualityFindings.length} quality suggestion
+              {qualityFindings.length === 1 ? "" : "s"}
+            </strong>
+            {blockingFindingCount > 0 ? (
+              <span>{blockingFindingCount} blocking</span>
+            ) : null}
+          </div>
+          <ul>
+            {qualityFindings.slice(0, 3).map((finding) => (
+              <li key={finding.id}>{finding.question}</li>
+            ))}
+          </ul>
         </div>
       ) : null}
 
