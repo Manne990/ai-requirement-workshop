@@ -42,14 +42,16 @@ Use `.env.example` only as a non-secret template. Local values go in
 `.env.local`. Vercel values go in the Vercel project environment settings or
 through `vercel env add`.
 
-| Variable                             | Scope                         | Secret | Notes                                                                                     |
-| ------------------------------------ | ----------------------------- | ------ | ----------------------------------------------------------------------------------------- |
-| `VITE_SUPABASE_URL`                  | Vercel Preview and Production | No     | Browser-safe Supabase project URL. Use a preview project or isolated preview environment. |
-| `VITE_SUPABASE_ANON_KEY`             | Vercel Preview and Production | No     | Browser-safe anon key. RLS is the enforcement boundary.                                   |
-| `OPENAI_API_KEY`                     | Vercel Functions, local BFF   | Yes    | Preferred server-only AI token for `/api/codex/*`.                                        |
-| `CODEX_API_TOKEN`                    | Vercel Functions, local BFF   | Yes    | Optional server-only alias if `OPENAI_API_KEY` is not used.                               |
-| `SUPABASE_SERVICE_ROLE_KEY`          | Vercel Functions only         | Yes    | Use only for audited privileged server work; never expose to browser code.                |
-| `AI_REQUIREMENT_WORKSHOP_BACKUP_DIR` | Local development only        | No     | Optional local disk mirror for the Vite-only backup endpoint.                             |
+| Variable                                  | Scope                               | Secret | Notes                                                                                                               |
+| ----------------------------------------- | ----------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------- |
+| `VITE_SUPABASE_URL`                       | Vercel Preview and Production       | No     | Browser-safe Supabase project URL. Use a preview project or isolated preview environment.                           |
+| `VITE_SUPABASE_ANON_KEY`                  | Vercel Preview and Production       | No     | Browser-safe anon key. RLS is the enforcement boundary.                                                             |
+| `OPENAI_API_KEY`                          | Vercel Functions, local BFF         | Yes    | Preferred server-only AI token for `/api/codex/*`.                                                                  |
+| `CODEX_API_TOKEN`                         | Vercel Functions, local BFF         | Yes    | Optional server-only alias if `OPENAI_API_KEY` is not used.                                                         |
+| `SUPABASE_SERVICE_ROLE_KEY`               | Vercel Functions only               | Yes    | Use only for audited privileged server work; never expose to browser code.                                          |
+| `AI_REQUIREMENT_WORKSHOP_BACKUP_DIR`      | Local development only              | No     | Optional local disk mirror for the Vite-only backup endpoint.                                                       |
+| `AI_REQUIREMENT_WORKSHOP_TELEMETRY_DIR`   | Local development, Vercel Functions | No     | Optional JSONL directory for `/api/mission-control/telemetry`.                                                      |
+| `VITE_MISSION_CONTROL_TELEMETRY_ENDPOINT` | Browser bundle                      | No     | Optional endpoint such as `/api/mission-control/telemetry`; leave empty to store telemetry only in browser storage. |
 
 Do not create `VITE_OPENAI_API_KEY`, `VITE_CODEX_API_TOKEN`, or
 `VITE_SUPABASE_SERVICE_ROLE_KEY`. Vite exposes every `VITE_` variable to the
@@ -62,6 +64,7 @@ vercel env add VITE_SUPABASE_URL production
 vercel env add VITE_SUPABASE_ANON_KEY production
 vercel env add OPENAI_API_KEY production --sensitive
 vercel env add SUPABASE_SERVICE_ROLE_KEY production --sensitive
+vercel env add VITE_MISSION_CONTROL_TELEMETRY_ENDPOINT production
 
 vercel env add VITE_SUPABASE_URL preview
 vercel env add VITE_SUPABASE_ANON_KEY preview
@@ -94,6 +97,22 @@ Production deployment is blocked until Supabase evidence exists for:
 
 The anon key is allowed in browser code only because RLS and storage policies
 must enforce authorization.
+
+## Mission Control Telemetry
+
+The app can emit Mission Control telemetry without exposing product secrets.
+When `VITE_MISSION_CONTROL_TELEMETRY_ENDPOINT` is empty, telemetry remains in
+browser storage. When it points at `/api/mission-control/telemetry`, the BFF
+accepts already redacted events and appends JSONL records to
+`AI_REQUIREMENT_WORKSHOP_TELEMETRY_DIR` or, by default:
+
+```text
+~/.gaia/ai-requirement-workshop/telemetry/mission-control-telemetry.jsonl
+```
+
+The same route supports `GET` for local observers that need the latest records.
+This is a Gaia/Mission Control feedback source, not an authority for workshop
+state. Product state remains in the workshop persistence layer.
 
 ## Release Gate
 

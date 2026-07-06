@@ -9,6 +9,10 @@ import {
   createCodexWorkshopTurn,
   type IncomingBody,
 } from "./server/codexWorkshopApi.js";
+import {
+  appendMissionControlTelemetryRecord,
+  readMissionControlTelemetryFile,
+} from "./server/missionControlTelemetryApi.js";
 
 export default defineConfig({
   plugins: [react(), codexWorkshopApi()],
@@ -63,6 +67,43 @@ function codexWorkshopApi(): Plugin {
                 ? error.message
                 : "Workshop backup failed.";
             sendJson(response, 500, { error: message });
+          }
+          return;
+        }
+
+        if (pathname === "/api/mission-control/telemetry") {
+          if (request.method === "GET") {
+            try {
+              sendJson(
+                response,
+                200,
+                await readMissionControlTelemetryFile(process.env),
+              );
+            } catch (error) {
+              const message =
+                error instanceof Error
+                  ? error.message
+                  : "Mission Control telemetry read failed.";
+              sendJson(response, 500, { error: message });
+            }
+            return;
+          }
+
+          if (request.method !== "POST") {
+            sendJson(response, 405, { error: "Method not allowed." });
+            return;
+          }
+
+          try {
+            const payload = await readJsonBody(request);
+            const result = await appendMissionControlTelemetryRecord(payload);
+            sendJson(response, 202, result);
+          } catch (error) {
+            const message =
+              error instanceof Error
+                ? error.message
+                : "Mission Control telemetry ingest failed.";
+            sendJson(response, 400, { error: message });
           }
           return;
         }
