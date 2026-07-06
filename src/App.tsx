@@ -47,6 +47,8 @@ import {
 } from "react";
 import "./App.css";
 import { extractAttachmentDrafts } from "./attachments/extractFile";
+import { AuthProvider } from "./auth/AuthProvider";
+import { AuthShell } from "./auth/AuthShell";
 import { CODEX_MODEL } from "./codex/constants";
 import {
   fetchCodexStatus,
@@ -82,17 +84,13 @@ import {
 import {
   createWorkshopRecordExport,
   createWorkshopRecord,
-  getActiveWorkshopId,
-  listWorkshopSummaries,
-  loadWorkshopRecord,
   parseWorkshopRecordExport,
-  saveWorkshopRecord,
-  setActiveWorkshopId as persistActiveWorkshopId,
   toWorkshopSummary,
   type SeenInsightIdsByParticipant,
   type WorkshopRecord,
   type WorkshopSummary,
 } from "./persistence/workshopStore";
+import { workshopRepository } from "./persistence/workshopRepository";
 import {
   mirrorWorkshopRecordToDisk,
   type DiskBackupResult,
@@ -240,7 +238,7 @@ function App() {
     }
 
     const record = createWorkshopRecord(session, seenInsightIdsByParticipant);
-    persistActiveWorkshopId(record.id);
+    workshopRepository.setActiveWorkshopId(record.id);
     setActiveWorkshopIdState(record.id);
     const saveSequence = ++saveSequenceRef.current;
     setBackupStatus((current) => ({
@@ -249,10 +247,11 @@ function App() {
       message: "Saving workshop...",
     }));
 
-    void saveWorkshopRecord(record)
+    void workshopRepository
+      .saveRecord(record)
       .then(async () => {
         const browserSavedAt = new Date().toISOString();
-        const summaries = await listWorkshopSummaries();
+        const summaries = await workshopRepository.listSummaries();
         if (saveSequence === saveSequenceRef.current) {
           setWorkshopSummaries(summaries);
           setBackupStatus({
@@ -378,7 +377,7 @@ function App() {
     setSelectedInsightParticipantId(null);
     setSeenInsightIdsByParticipant({});
     setActiveWorkshopIdState(next.id);
-    persistActiveWorkshopId(next.id);
+    workshopRepository.setActiveWorkshopId(next.id);
   }, []);
 
   const handleExportWorkshop = useCallback(() => {
@@ -399,15 +398,15 @@ function App() {
 
       try {
         const record = parseWorkshopRecordExport(await file.text());
-        await saveWorkshopRecord(record);
-        persistActiveWorkshopId(record.id);
+        await workshopRepository.saveRecord(record);
+        workshopRepository.setActiveWorkshopId(record.id);
         setSession(record.session);
         setPendingAttachments([]);
         setDraft("");
         setSeenInsightIdsByParticipant(record.seenInsightIdsByParticipant);
         setSelectedInsightParticipantId(null);
         setActiveWorkshopIdState(record.id);
-        setWorkshopSummaries(await listWorkshopSummaries());
+        setWorkshopSummaries(await workshopRepository.listSummaries());
         setBackupStatus({
           state: "saved",
           browserSavedAt: new Date().toISOString(),
@@ -429,7 +428,7 @@ function App() {
   );
 
   const handleOpenWorkshop = useCallback(async (workshopId: string) => {
-    const record = await loadWorkshopRecord(workshopId);
+    const record = await workshopRepository.loadRecord(workshopId);
     if (!record) {
       return;
     }
@@ -440,7 +439,7 @@ function App() {
     setSeenInsightIdsByParticipant(record.seenInsightIdsByParticipant);
     setSelectedInsightParticipantId(null);
     setActiveWorkshopIdState(record.id);
-    persistActiveWorkshopId(record.id);
+    workshopRepository.setActiveWorkshopId(record.id);
   }, []);
 
   const handleAttachmentPickerClick = useCallback(() => {
@@ -574,382 +573,399 @@ function App() {
   ).length;
 
   return (
-    <main className="app-shell">
-      <header className="topbar" aria-label="Workshop status">
-        <div>
-          <p className="eyebrow">AI Requirement Workshop</p>
-          <h1>Collaborative requirement room</h1>
-        </div>
-        <div className="topbar-actions">
-          <input
-            ref={importInputRef}
-            className="file-input"
-            type="file"
-            aria-label="Import workshop file"
-            accept=".json,application/json"
-            onChange={(event) =>
-              void handleImportWorkshopFile(event.target.files)
-            }
-          />
-          <div className="workshop-switcher">
-            <label htmlFor="workshop-select">Open workshop</label>
-            <select
-              id="workshop-select"
-              value={activeWorkshopId}
-              onChange={(event) => void handleOpenWorkshop(event.target.value)}
-              disabled={!isStoreReady || workshopSummaries.length === 0}
+    <AuthProvider>
+      <main className="app-shell">
+        <header className="topbar" aria-label="Workshop status">
+          <div>
+            <p className="eyebrow">AI Requirement Workshop</p>
+            <h1>Collaborative requirement room</h1>
+          </div>
+          <div className="topbar-actions">
+            <input
+              ref={importInputRef}
+              className="file-input"
+              type="file"
+              aria-label="Import workshop file"
+              accept=".json,application/json"
+              onChange={(event) =>
+                void handleImportWorkshopFile(event.target.files)
+              }
+            />
+            <div className="workshop-switcher">
+              <label htmlFor="workshop-select">Open workshop</label>
+              <select
+                id="workshop-select"
+                value={activeWorkshopId}
+                onChange={(event) =>
+                  void handleOpenWorkshop(event.target.value)
+                }
+                disabled={!isStoreReady || workshopSummaries.length === 0}
+              >
+                {workshopSummaries.length === 0 ? (
+                  <option value={activeWorkshopId}>Current workshop</option>
+                ) : (
+                  workshopSummaries.map((summary) => (
+                    <option value={summary.id} key={summary.id}>
+                      {summary.title}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+            <div
+              className={`codex-status ${codexStatus.configured ? "configured" : "missing"}`}
             >
-              {workshopSummaries.length === 0 ? (
-                <option value={activeWorkshopId}>Current workshop</option>
-              ) : (
-                workshopSummaries.map((summary) => (
-                  <option value={summary.id} key={summary.id}>
-                    {summary.title}
-                  </option>
-                ))
-              )}
-            </select>
-          </div>
-          <div
-            className={`codex-status ${codexStatus.configured ? "configured" : "missing"}`}
-          >
-            <Sparkles aria-hidden="true" size={16} />
-            <div>
-              <span>Codex {codexStatus.model}</span>
-              <small>{codexStatus.message}</small>
+              <Sparkles aria-hidden="true" size={16} />
+              <div>
+                <span>Codex {codexStatus.model}</span>
+                <small>{codexStatus.message}</small>
+              </div>
             </div>
+            <BackupStatusPill status={backupStatus} />
+            <AuthShell />
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={handleExportWorkshop}
+            >
+              <Download aria-hidden="true" size={18} />
+              Export
+            </button>
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={handleImportWorkshopClick}
+            >
+              <Upload aria-hidden="true" size={18} />
+              Import
+            </button>
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={handleCreateWorkshop}
+            >
+              <Plus aria-hidden="true" size={18} />
+              New
+            </button>
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={handleReset}
+            >
+              <RefreshCcw aria-hidden="true" size={18} />
+              Reset
+            </button>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => setIsReportOpen(true)}
+            >
+              <FileText aria-hidden="true" size={18} />
+              Report
+            </button>
           </div>
-          <BackupStatusPill status={backupStatus} />
-          <button
-            className="ghost-button"
-            type="button"
-            onClick={handleExportWorkshop}
-          >
-            <Download aria-hidden="true" size={18} />
-            Export
-          </button>
-          <button
-            className="ghost-button"
-            type="button"
-            onClick={handleImportWorkshopClick}
-          >
-            <Upload aria-hidden="true" size={18} />
-            Import
-          </button>
-          <button
-            className="ghost-button"
-            type="button"
-            onClick={handleCreateWorkshop}
-          >
-            <Plus aria-hidden="true" size={18} />
-            New
-          </button>
-          <button className="ghost-button" type="button" onClick={handleReset}>
-            <RefreshCcw aria-hidden="true" size={18} />
-            Reset
-          </button>
-          <button
-            className="primary-button"
-            type="button"
-            onClick={() => setIsReportOpen(true)}
-          >
-            <FileText aria-hidden="true" size={18} />
-            Report
-          </button>
-        </div>
-      </header>
+        </header>
 
-      <section className="workspace-grid" aria-label="Workshop room">
-        <section className="canvas-pane" aria-label="Zoomable workshop canvas">
-          <div className="canvas-header">
-            <div>
-              <p className="eyebrow">Live canvas</p>
-              <h2>{session.title}</h2>
+        <section className="workspace-grid" aria-label="Workshop room">
+          <section
+            className="canvas-pane"
+            aria-label="Zoomable workshop canvas"
+          >
+            <div className="canvas-header">
+              <div>
+                <p className="eyebrow">Live canvas</p>
+                <h2>{session.title}</h2>
+              </div>
+              <div className="mode-control" aria-label="Visualization mode">
+                {(Object.keys(visualizationLabels) as VisualizationMode[]).map(
+                  (mode) => (
+                    <button
+                      type="button"
+                      key={mode}
+                      aria-pressed={session.visualizationMode === mode}
+                      className={
+                        session.visualizationMode === mode ? "active" : ""
+                      }
+                      onClick={() =>
+                        setSession((current) =>
+                          setVisualizationMode(current, mode),
+                        )
+                      }
+                    >
+                      {visualizationLabels[mode]}
+                    </button>
+                  ),
+                )}
+              </div>
             </div>
-            <div className="mode-control" aria-label="Visualization mode">
-              {(Object.keys(visualizationLabels) as VisualizationMode[]).map(
-                (mode) => (
+
+            <div className="canvas-surface">
+              <ReactFlow
+                nodes={artifactNodes}
+                edges={artifactEdges}
+                nodeTypes={{ artifact: ArtifactNode }}
+                fitView
+                minZoom={0.35}
+                maxZoom={1.6}
+                proOptions={{ hideAttribution: true }}
+              >
+                <Background gap={22} color="rgba(255,255,255,0.08)" />
+                <Controls position="bottom-left" />
+                <Panel position="top-left" className="canvas-panel">
+                  <span>{acceptedCount} accepted</span>
+                  <span>{draftCount} draft</span>
                   <button
                     type="button"
-                    key={mode}
-                    aria-pressed={session.visualizationMode === mode}
-                    className={
-                      session.visualizationMode === mode ? "active" : ""
-                    }
+                    aria-pressed={session.followDiscussion}
+                    className={session.followDiscussion ? "active" : ""}
                     onClick={() =>
                       setSession((current) =>
-                        setVisualizationMode(current, mode),
+                        setFollowDiscussion(current, !current.followDiscussion),
                       )
                     }
                   >
-                    {visualizationLabels[mode]}
+                    <Focus aria-hidden="true" size={14} />
+                    Follow
                   </button>
-                ),
-              )}
+                </Panel>
+              </ReactFlow>
             </div>
-          </div>
+          </section>
 
-          <div className="canvas-surface">
-            <ReactFlow
-              nodes={artifactNodes}
-              edges={artifactEdges}
-              nodeTypes={{ artifact: ArtifactNode }}
-              fitView
-              minZoom={0.35}
-              maxZoom={1.6}
-              proOptions={{ hideAttribution: true }}
+          <aside className="chat-pane" aria-label="Workshop chat">
+            <div className="chat-header">
+              <div>
+                <p className="eyebrow">Workshop chat</p>
+                <h2>Discussion</h2>
+              </div>
+              <MessageSquare aria-hidden="true" size={22} />
+            </div>
+
+            <div
+              className="message-list"
+              role="log"
+              aria-live="polite"
+              ref={messageListRef}
             >
-              <Background gap={22} color="rgba(255,255,255,0.08)" />
-              <Controls position="bottom-left" />
-              <Panel position="top-left" className="canvas-panel">
-                <span>{acceptedCount} accepted</span>
-                <span>{draftCount} draft</span>
+              {session.messages.map((message) => {
+                const participant = session.participants.find(
+                  (candidate) => candidate.id === message.participantId,
+                );
+                return (
+                  <article
+                    className={`message ${message.kind}`}
+                    key={message.id}
+                  >
+                    <div className="message-meta">
+                      <span>{participant?.name ?? message.participantId}</span>
+                      <time dateTime={message.createdAt}>
+                        {formatTime(message.createdAt)}
+                      </time>
+                    </div>
+                    <p>{message.body}</p>
+                    {message.relatedArtifactIds.length > 0 ? (
+                      <div className="message-artifacts">
+                        {message.relatedArtifactIds.map((artifactId) => (
+                          <button
+                            type="button"
+                            key={artifactId}
+                            onClick={() => handleSelectArtifact(artifactId)}
+                          >
+                            {shortArtifactName(
+                              session.artifacts.find(
+                                (artifact) => artifact.id === artifactId,
+                              ),
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
+
+            <form className="chat-composer" onSubmit={handleSubmit}>
+              <label htmlFor="workshop-input">
+                Describe, challenge, or refine the requirement discussion
+              </label>
+              <input
+                ref={attachmentInputRef}
+                className="file-input"
+                type="file"
+                aria-label="Attach workshop files"
+                multiple
+                accept=".txt,.md,.csv,.json,.docx,.xlsx,.xls,text/*,application/json"
+                onChange={(event) =>
+                  void handleAttachmentFiles(event.target.files)
+                }
+              />
+              <textarea
+                id="workshop-input"
+                rows={4}
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder="Example: SOS operators need a way to compare incoming incident data against earlier calls without slowing dispatch..."
+                disabled={isCodexThinking}
+              />
+              <div className="attachment-toolbar">
                 <button
+                  className="ghost-button"
                   type="button"
-                  aria-pressed={session.followDiscussion}
-                  className={session.followDiscussion ? "active" : ""}
-                  onClick={() =>
-                    setSession((current) =>
-                      setFollowDiscussion(current, !current.followDiscussion),
-                    )
-                  }
+                  onClick={handleAttachmentPickerClick}
+                  disabled={isCodexThinking || isExtractingAttachments}
                 >
-                  <Focus aria-hidden="true" size={14} />
-                  Follow
+                  <Paperclip aria-hidden="true" size={16} />
+                  {isExtractingAttachments ? "Reading files" : "Attach files"}
                 </button>
-              </Panel>
-            </ReactFlow>
-          </div>
+                {pendingAttachments.length > 0 ? (
+                  <span>
+                    {pendingAttachments.length} pending attachment
+                    {pendingAttachments.length === 1 ? "" : "s"}
+                  </span>
+                ) : null}
+              </div>
+              {pendingAttachments.length > 0 ? (
+                <div className="pending-attachments" aria-label="Pending files">
+                  {pendingAttachments.map((attachment, index) => (
+                    <article
+                      className="pending-attachment"
+                      key={`${attachment.name}-${index}`}
+                    >
+                      <div>
+                        <strong>{attachment.name}</strong>
+                        <span>
+                          {formatFileSize(attachment.size)} ·{" "}
+                          {attachment.status === "extracted"
+                            ? "text extracted"
+                            : "metadata only"}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${attachment.name}`}
+                        onClick={() => handleRemoveAttachment(index)}
+                      >
+                        <Trash2 aria-hidden="true" size={14} />
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+              {attachmentError ? (
+                <p className="composer-error">{attachmentError}</p>
+              ) : null}
+              {codexError ? (
+                <p className="composer-error">{codexError}</p>
+              ) : null}
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={
+                  (!draft.trim() && pendingAttachments.length === 0) ||
+                  isCodexThinking ||
+                  isExtractingAttachments
+                }
+              >
+                <Send aria-hidden="true" size={18} />
+                {isCodexThinking ? "Codex thinking" : "Send"}
+              </button>
+            </form>
+          </aside>
         </section>
 
-        <aside className="chat-pane" aria-label="Workshop chat">
-          <div className="chat-header">
-            <div>
-              <p className="eyebrow">Workshop chat</p>
-              <h2>Discussion</h2>
-            </div>
-            <MessageSquare aria-hidden="true" size={22} />
+        <section
+          className="detail-rail"
+          aria-label="Participants and selected artifact"
+        >
+          <div className="selected-artifact">
+            <p className="eyebrow">Selected artifact</p>
+            {selectedArtifact ? (
+              <>
+                <h2>{selectedArtifact.title}</h2>
+                <p>{selectedArtifact.content}</p>
+                <div className="artifact-actions">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleStatusChange(selectedArtifact.id, "accepted")
+                    }
+                  >
+                    <Check aria-hidden="true" size={16} />
+                    Accept
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleStatusChange(selectedArtifact.id, "parked")
+                    }
+                  >
+                    <Pause aria-hidden="true" size={16} />
+                    Park
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleStatusChange(selectedArtifact.id, "rejected")
+                    }
+                  >
+                    <X aria-hidden="true" size={16} />
+                    Reject
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p>Select a canvas artifact to inspect provenance and status.</p>
+            )}
           </div>
 
-          <div
-            className="message-list"
-            role="log"
-            aria-live="polite"
-            ref={messageListRef}
-          >
-            {session.messages.map((message) => {
-              const participant = session.participants.find(
-                (candidate) => candidate.id === message.participantId,
+          <ReadinessCard readiness={readiness} />
+
+          <div className="participants-strip">
+            {session.participants.map((participant) => {
+              const insights = insightsForParticipant(
+                session.artifacts,
+                participant.id,
               );
+              const seenIds = new Set(
+                seenInsightIdsByParticipant[participant.id] ?? [],
+              );
+              const unreadInsightCount = insights.filter(
+                (artifact) => !seenIds.has(artifact.id),
+              ).length;
+
               return (
-                <article className={`message ${message.kind}`} key={message.id}>
-                  <div className="message-meta">
-                    <span>{participant?.name ?? message.participantId}</span>
-                    <time dateTime={message.createdAt}>
-                      {formatTime(message.createdAt)}
-                    </time>
-                  </div>
-                  <p>{message.body}</p>
-                  {message.relatedArtifactIds.length > 0 ? (
-                    <div className="message-artifacts">
-                      {message.relatedArtifactIds.map((artifactId) => (
-                        <button
-                          type="button"
-                          key={artifactId}
-                          onClick={() => handleSelectArtifact(artifactId)}
-                        >
-                          {shortArtifactName(
-                            session.artifacts.find(
-                              (artifact) => artifact.id === artifactId,
-                            ),
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </article>
+                <ParticipantChip
+                  participant={participant}
+                  key={participant.id}
+                  insightCount={insights.length}
+                  unreadInsightCount={unreadInsightCount}
+                  isSelected={participant.id === selectedInsightParticipantId}
+                  onOpenInsights={handleOpenParticipantInsights}
+                />
               );
             })}
           </div>
+        </section>
 
-          <form className="chat-composer" onSubmit={handleSubmit}>
-            <label htmlFor="workshop-input">
-              Describe, challenge, or refine the requirement discussion
-            </label>
-            <input
-              ref={attachmentInputRef}
-              className="file-input"
-              type="file"
-              aria-label="Attach workshop files"
-              multiple
-              accept=".txt,.md,.csv,.json,.docx,.xlsx,.xls,text/*,application/json"
-              onChange={(event) =>
-                void handleAttachmentFiles(event.target.files)
-              }
-            />
-            <textarea
-              id="workshop-input"
-              rows={4}
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder="Example: SOS operators need a way to compare incoming incident data against earlier calls without slowing dispatch..."
-              disabled={isCodexThinking}
-            />
-            <div className="attachment-toolbar">
-              <button
-                className="ghost-button"
-                type="button"
-                onClick={handleAttachmentPickerClick}
-                disabled={isCodexThinking || isExtractingAttachments}
-              >
-                <Paperclip aria-hidden="true" size={16} />
-                {isExtractingAttachments ? "Reading files" : "Attach files"}
-              </button>
-              {pendingAttachments.length > 0 ? (
-                <span>
-                  {pendingAttachments.length} pending attachment
-                  {pendingAttachments.length === 1 ? "" : "s"}
-                </span>
-              ) : null}
-            </div>
-            {pendingAttachments.length > 0 ? (
-              <div className="pending-attachments" aria-label="Pending files">
-                {pendingAttachments.map((attachment, index) => (
-                  <article
-                    className="pending-attachment"
-                    key={`${attachment.name}-${index}`}
-                  >
-                    <div>
-                      <strong>{attachment.name}</strong>
-                      <span>
-                        {formatFileSize(attachment.size)} ·{" "}
-                        {attachment.status === "extracted"
-                          ? "text extracted"
-                          : "metadata only"}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      aria-label={`Remove ${attachment.name}`}
-                      onClick={() => handleRemoveAttachment(index)}
-                    >
-                      <Trash2 aria-hidden="true" size={14} />
-                    </button>
-                  </article>
-                ))}
-              </div>
-            ) : null}
-            {attachmentError ? (
-              <p className="composer-error">{attachmentError}</p>
-            ) : null}
-            {codexError ? <p className="composer-error">{codexError}</p> : null}
-            <button
-              className="primary-button"
-              type="submit"
-              disabled={
-                (!draft.trim() && pendingAttachments.length === 0) ||
-                isCodexThinking ||
-                isExtractingAttachments
-              }
-            >
-              <Send aria-hidden="true" size={18} />
-              {isCodexThinking ? "Codex thinking" : "Send"}
-            </button>
-          </form>
-        </aside>
-      </section>
+        {selectedInsightParticipant ? (
+          <AgentInsightsPanel
+            participant={selectedInsightParticipant}
+            artifacts={selectedInsightArtifacts}
+            onClose={() => setSelectedInsightParticipantId(null)}
+            onSelectArtifact={handleSelectArtifact}
+          />
+        ) : null}
 
-      <section
-        className="detail-rail"
-        aria-label="Participants and selected artifact"
-      >
-        <div className="selected-artifact">
-          <p className="eyebrow">Selected artifact</p>
-          {selectedArtifact ? (
-            <>
-              <h2>{selectedArtifact.title}</h2>
-              <p>{selectedArtifact.content}</p>
-              <div className="artifact-actions">
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleStatusChange(selectedArtifact.id, "accepted")
-                  }
-                >
-                  <Check aria-hidden="true" size={16} />
-                  Accept
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleStatusChange(selectedArtifact.id, "parked")
-                  }
-                >
-                  <Pause aria-hidden="true" size={16} />
-                  Park
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleStatusChange(selectedArtifact.id, "rejected")
-                  }
-                >
-                  <X aria-hidden="true" size={16} />
-                  Reject
-                </button>
-              </div>
-            </>
-          ) : (
-            <p>Select a canvas artifact to inspect provenance and status.</p>
-          )}
-        </div>
-
-        <ReadinessCard readiness={readiness} />
-
-        <div className="participants-strip">
-          {session.participants.map((participant) => {
-            const insights = insightsForParticipant(
-              session.artifacts,
-              participant.id,
-            );
-            const seenIds = new Set(
-              seenInsightIdsByParticipant[participant.id] ?? [],
-            );
-            const unreadInsightCount = insights.filter(
-              (artifact) => !seenIds.has(artifact.id),
-            ).length;
-
-            return (
-              <ParticipantChip
-                participant={participant}
-                key={participant.id}
-                insightCount={insights.length}
-                unreadInsightCount={unreadInsightCount}
-                isSelected={participant.id === selectedInsightParticipantId}
-                onOpenInsights={handleOpenParticipantInsights}
-              />
-            );
-          })}
-        </div>
-      </section>
-
-      {selectedInsightParticipant ? (
-        <AgentInsightsPanel
-          participant={selectedInsightParticipant}
-          artifacts={selectedInsightArtifacts}
-          onClose={() => setSelectedInsightParticipantId(null)}
-          onSelectArtifact={handleSelectArtifact}
-        />
-      ) : null}
-
-      {isReportOpen ? (
-        <ReportDrawer
-          report={report}
-          onClose={() => setIsReportOpen(false)}
-          onDownload={() => downloadReport(report)}
-        />
-      ) : null}
-    </main>
+        {isReportOpen ? (
+          <ReportDrawer
+            report={report}
+            onClose={() => setIsReportOpen(false)}
+            onDownload={() => downloadReport(report)}
+          />
+        ) : null}
+      </main>
+    </AuthProvider>
   );
 }
 
@@ -1333,23 +1349,23 @@ async function initializeWorkshopStore(
   fallbackSession: WorkshopSession,
   fallbackSeenInsightIdsByParticipant: SeenInsightIdsByParticipant,
 ): Promise<{ record: WorkshopRecord; summaries: WorkshopSummary[] }> {
-  const activeWorkshopId = getActiveWorkshopId();
-  const summaries = await listWorkshopSummaries();
+  const activeWorkshopId = workshopRepository.getActiveWorkshopId();
+  const summaries = await workshopRepository.listSummaries();
   const activeRecord = activeWorkshopId
-    ? await loadWorkshopRecord(activeWorkshopId)
+    ? await workshopRepository.loadRecord(activeWorkshopId)
     : null;
   const latestRecord = summaries[0]
-    ? await loadWorkshopRecord(summaries[0].id)
+    ? await workshopRepository.loadRecord(summaries[0].id)
     : null;
   const record =
     activeRecord ??
     latestRecord ??
     createWorkshopRecord(fallbackSession, fallbackSeenInsightIdsByParticipant);
 
-  await saveWorkshopRecord(record);
-  persistActiveWorkshopId(record.id);
+  await workshopRepository.saveRecord(record);
+  workshopRepository.setActiveWorkshopId(record.id);
 
-  const nextSummaries = await listWorkshopSummaries();
+  const nextSummaries = await workshopRepository.listSummaries();
   return {
     record,
     summaries:

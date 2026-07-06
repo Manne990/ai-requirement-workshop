@@ -130,6 +130,38 @@ describe("App", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("exposes the frontend auth shell from the workshop topbar", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /^sign in$/i }));
+
+    const dialog = screen.getByRole("dialog", { name: /authentication/i });
+    fireEvent.click(within(dialog).getByRole("button", { name: /register/i }));
+    fireEvent.change(within(dialog).getByLabelText(/display name/i), {
+      target: { value: "Citizen Two" },
+    });
+    fireEvent.change(within(dialog).getByLabelText(/^email$/i), {
+      target: { value: "citizen-02@example.com" },
+    });
+    fireEvent.change(within(dialog).getByLabelText(/^password$/i), {
+      target: { value: "workshop-passphrase" },
+    });
+
+    const registerButtons = within(dialog).getAllByRole("button", {
+      name: /^register$/i,
+    });
+    fireEvent.click(registerButtons[registerButtons.length - 1]);
+
+    const account = await screen.findByLabelText(/signed-in account/i);
+    expect(within(account).getByText("Citizen Two")).toBeInTheDocument();
+
+    fireEvent.click(within(account).getByRole("button", { name: /sign out/i }));
+
+    expect(
+      await screen.findByRole("button", { name: /^sign in$/i }),
+    ).toBeInTheDocument();
+  });
+
   it("attaches files to a workshop turn as source artifacts", async () => {
     render(<App />);
 

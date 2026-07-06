@@ -29,6 +29,12 @@ CODEX_API_TOKEN="your_local_key"
 
 For file-based local config, put the value in `.env.local`. `.env*` files are ignored by git. Do not commit tokens, captured headers, or generated config containing credentials.
 
+Use [.env.example](.env.example) as the non-secret template for local and production environment names. Copy it to `.env.local` for local development and keep real values in local shell config, `.env.local`, Vercel environment variables, or Supabase secret storage.
+
+## Production Architecture And Deployment
+
+The production target is a Vercel-hosted React app with a minimal server-side BFF for Codex/OpenAI calls and Supabase as the auth, data, storage, and realtime boundary. See [docs/production-architecture.md](docs/production-architecture.md) for the full boundary, environment model, local-to-server migration path, rollout risks, and Gaia verification loop.
+
 ## Workshop State And Backups
 
 Workshop records are autosaved in browser storage. During local development, the app also mirrors each workshop record to disk through the Vite dev server.
