@@ -222,6 +222,7 @@ button:disabled {
 }
 
 .canvas-pane,
+.operations-pane,
 .chat-pane,
 .selected-artifact,
 .report-drawer {
@@ -237,6 +238,25 @@ button:disabled {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
+}
+
+.operations-pane {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(320px, 0.95fr) minmax(240px, 0.7fr) minmax(
+      220px,
+      0.64fr
+    );
+  gap: 12px;
+  overflow-y: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.operations-pane > section {
+  min-height: 0;
 }
 
 .canvas-header,
@@ -963,8 +983,8 @@ button:disabled {
   }
 
   .prototype-pane {
-    grid-column: 1;
-    grid-row: 2;
+    grid-column: auto;
+    grid-row: auto;
   }
 
   .chat-pane {
@@ -986,6 +1006,7 @@ button:disabled {
   }
 
   .prototype-pane,
+  .operations-pane,
   .chat-pane {
     grid-column: auto;
     grid-row: auto;

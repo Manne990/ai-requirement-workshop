@@ -57,6 +57,8 @@ import {
   type CodexStatus,
 } from "./codex/client";
 import { PrototypePanel } from "./components/PrototypePanel";
+import { RequirementsPanel } from "./components/RequirementsPanel";
+import ConsolidationPanel from "./components/ConsolidationPanel";
 import {
   appendPendingCodexHumanMessage,
   applyCodexWorkshopTurn,
@@ -67,6 +69,17 @@ import {
   recordPrototypeFeedback,
   type PrototypeFeedbackInput,
 } from "./domain/prototype";
+import {
+  applyRuntimeConsolidationSuggestion,
+  approveRequirementPanelItem,
+  baselineRequirementPanelItem,
+  parkRuntimeConsolidationSuggestion,
+  rejectRequirementPanelItem,
+  selectConsolidationPanelArtifacts,
+  selectConsolidationPanelSuggestionsFromSession,
+  selectRequirementPanelItemsFromSession,
+  supersedeRequirementPanelItem,
+} from "./domain/requirementRuntime";
 import {
   evaluateWorkshopReadiness,
   type WorkshopReadiness,
@@ -332,6 +345,21 @@ function WorkshopRoom() {
     [session],
   );
 
+  const requirementPanelItems = useMemo(
+    () => selectRequirementPanelItemsFromSession(session),
+    [session],
+  );
+
+  const consolidationArtifacts = useMemo(
+    () => selectConsolidationPanelArtifacts(session),
+    [session],
+  );
+
+  const consolidationSuggestions = useMemo(
+    () => selectConsolidationPanelSuggestionsFromSession(session),
+    [session],
+  );
+
   const selectedInsightParticipant = useMemo(
     () =>
       session.participants.find(
@@ -552,6 +580,30 @@ function WorkshopRoom() {
     },
     [],
   );
+
+  const handleApplyConsolidation = useCallback((suggestionId: string) => {
+    setSession((current) => {
+      try {
+        return applyRuntimeConsolidationSuggestion(current, suggestionId, {
+          actorId: participantIds.facilitator,
+        });
+      } catch {
+        return current;
+      }
+    });
+  }, []);
+
+  const handleParkConsolidation = useCallback((suggestionId: string) => {
+    setSession((current) => {
+      try {
+        return parkRuntimeConsolidationSuggestion(current, suggestionId, {
+          actorId: participantIds.facilitator,
+        });
+      } catch {
+        return current;
+      }
+    });
+  }, []);
 
   const handleGeneratePrototype = useCallback(() => {
     setSession((current) =>
@@ -796,12 +848,61 @@ function WorkshopRoom() {
           </div>
         </section>
 
-        <PrototypePanel
-          session={session}
-          modelName={codexStatus.model}
-          onGeneratePrototype={handleGeneratePrototype}
-          onRecordFeedback={handlePrototypeFeedback}
-        />
+        <section className="operations-pane" aria-label="Workshop operations">
+          <PrototypePanel
+            session={session}
+            modelName={codexStatus.model}
+            onGeneratePrototype={handleGeneratePrototype}
+            onRecordFeedback={handlePrototypeFeedback}
+          />
+          <RequirementsPanel
+            requirements={requirementPanelItems}
+            selectedRequirementId={selectedArtifact?.id}
+            onSelectRequirement={(requirement) =>
+              handleSelectArtifact(requirement.id)
+            }
+            onApprove={(requirement) =>
+              setSession((current) =>
+                approveRequirementPanelItem(current, requirement, {
+                  actorId: participantIds.human,
+                }),
+              )
+            }
+            onReject={(requirement) =>
+              setSession((current) =>
+                rejectRequirementPanelItem(current, requirement, {
+                  actorId: participantIds.human,
+                }),
+              )
+            }
+            onSupersede={(requirement) =>
+              setSession((current) =>
+                supersedeRequirementPanelItem(current, requirement, {
+                  actorId: participantIds.human,
+                  rationale:
+                    "Marked as superseded from the requirements panel.",
+                }),
+              )
+            }
+            onBaseline={(requirement) =>
+              setSession((current) => {
+                try {
+                  return baselineRequirementPanelItem(current, requirement, {
+                    actorId: participantIds.human,
+                  });
+                } catch {
+                  return current;
+                }
+              })
+            }
+          />
+          <ConsolidationPanel
+            suggestions={consolidationSuggestions}
+            artifacts={consolidationArtifacts}
+            onApplySuggestion={handleApplyConsolidation}
+            onParkSuggestion={handleParkConsolidation}
+          />
+        </section>
 
         <aside className="chat-pane" aria-label="Workshop chat">
           <div className="chat-header">

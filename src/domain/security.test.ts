@@ -137,8 +137,98 @@ describe("security and AI prompt boundaries", () => {
   });
 
   it("exposes a reusable redaction helper for exports and backend boundaries", () => {
-    expect(redactSensitiveText("Bearer abcdefghijklmnopqrstuvwxyz")).toBe(
-      "[REDACTED:bearer-token]",
+    expect(
+      redactSensitiveText(
+        [
+          "Bearer abcdefghijklmnopqrstuvwxyz",
+          "SUPABASE_SERVICE_ROLE_KEY=server-only-secret",
+          "198001011234",
+        ].join("\n"),
+      ),
+    ).toBe(
+      [
+        "[REDACTED:bearer-token]",
+        "[REDACTED:credential]",
+        "[REDACTED:personal-id]",
+      ].join("\n"),
     );
+  });
+
+  it("redacts user-controlled tags and caps new attachment payloads", () => {
+    const session = {
+      ...createInitialWorkshopSession("2026-07-06T09:00:00.000Z"),
+      artifacts: [
+        {
+          id: "artifact-1",
+          type: "source" as const,
+          title: "Source",
+          content: "Clean content",
+          status: "draft" as const,
+          createdBy: participantIds.facilitator,
+          updatedAt: "2026-07-06T09:01:00.000Z",
+          source: {
+            messageId: "message-1",
+            participantId: participantIds.human,
+          },
+          tags: [
+            "requirement",
+            "api_key=sk-abcdefghijklmnopqrstuvwxyz123456",
+            "tag-2",
+            "tag-3",
+            "tag-4",
+            "tag-5",
+            "tag-6",
+            "tag-7",
+            "tag-8",
+          ],
+        },
+      ],
+      attachments: [
+        {
+          id: "attachment-existing",
+          name: "existing.txt",
+          mimeType: "text/plain",
+          size: 64,
+          extractedText: "Not included from session attachments",
+          summary: "Summary",
+          status: "extracted" as const,
+          tags: ["owner=ops@example.com"],
+          sourceMessageId: "message-1",
+          createdAt: "2026-07-06T09:01:00.000Z",
+        },
+      ],
+    };
+
+    const boundary = buildSafeAiWorkshopPayload({
+      session,
+      message: "Review attached sources.",
+      attachments: Array.from({ length: 13 }, (_, index) => ({
+        name: `source-${index}.txt`,
+        mimeType: "text/plain",
+        size: 64,
+        extractedText: `Attachment ${index}`,
+        summary: `Summary ${index}`,
+        status: "extracted" as const,
+        tags:
+          index === 0
+            ? ["Bearer abcdefghijklmnopqrstuvwxyz", "safe"]
+            : ["safe"],
+      })),
+    });
+    const payloadJson = JSON.stringify(boundary.payload);
+
+    expect(boundary.payload.attachments).toHaveLength(12);
+    expect(boundary.payload.session.artifacts[0]?.tags).toHaveLength(8);
+    expect(boundary.redactions.map((finding) => finding.kind)).toEqual(
+      expect.arrayContaining([
+        "bearer-token",
+        "credential-assignment",
+        "email-address",
+      ]),
+    );
+    expect(payloadJson).not.toContain("sk-abcdefghijklmnopqrstuvwxyz");
+    expect(payloadJson).not.toContain("ops@example.com");
+    expect(payloadJson).not.toContain("Bearer abcdefghijklmnopqrstuvwxyz");
+    expect(payloadJson).toContain("[REDACTED:");
   });
 });

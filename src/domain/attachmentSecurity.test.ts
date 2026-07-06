@@ -242,6 +242,35 @@ describe("attachment security domain", () => {
     ).toThrow("Attachment storage object path must match");
   });
 
+  it("normalizes provider object path segments instead of trusting raw names", () => {
+    const storage = createAttachmentStorageRef({
+      provider: "supabase-storage",
+      organizationId: "org/../1",
+      workshopId: "workshop 1",
+      attachmentId: "../attachment-001",
+      fileName: "../exports/requirements.csv",
+      checksumSha256:
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      storedAt: createdAt,
+    });
+
+    expect(storage.objectPath).toBe(
+      "organizations/org_.._1/workshops/workshop_1/attachments/_attachment-001/_exports_requirements.csv",
+    );
+    expect(storage.objectPath).not.toContain("../");
+    expect(
+      validateAttachmentStorageRef({
+        storage,
+        organizationId: "org/../1",
+        workshopId: "workshop 1",
+        attachmentId: "../attachment-001",
+        fileName: "../exports/requirements.csv",
+      }),
+    ).toMatchObject({
+      allowed: true,
+    });
+  });
+
   it("keeps imported attachments as metadata-only provenance without provider object paths", () => {
     const record = createProductionAttachmentRecord({
       draft: {

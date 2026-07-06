@@ -149,13 +149,13 @@ const sensitiveRules: SensitiveRule[] = [
     label: "credential",
     severity: "high",
     pattern:
-      /\b(?:password|passcode|secret|api[_-]?key|token)\s*[:=]\s*["']?[^"'\s,;]{6,}["']?/gi,
+      /\b(?:password|passcode|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|service[_-]?role(?:[_-]?key)?|supabase[_-]?service[_-]?role[_-]?key|token)\s*[:=]\s*["']?[^"'\s,;]{6,}["']?/gi,
   },
   {
     kind: "swedish-personal-number",
     label: "personal-id",
     severity: "high",
-    pattern: /\b(?:19|20)?\d{6}[-+]\d{4}\b/g,
+    pattern: /\b(?:19|20)?\d{6}[-+]?\d{4}\b/g,
   },
   {
     kind: "email-address",
@@ -262,7 +262,7 @@ export function buildSafeAiWorkshopPayload(
         content: safeText(artifact.content),
         status: artifact.status,
         createdBy: artifact.createdBy,
-        tags: artifact.tags,
+        tags: safeTags(artifact.tags),
       })),
       attachments: (input.session.attachments ?? [])
         .slice(-12)
@@ -273,10 +273,10 @@ export function buildSafeAiWorkshopPayload(
           size: attachment.size,
           status: attachment.status,
           summary: safeText(attachment.summary),
-          tags: attachment.tags,
+          tags: safeTags(attachment.tags),
         })),
     },
-    attachments: (input.attachments ?? []).map((attachment) => ({
+    attachments: (input.attachments ?? []).slice(0, 12).map((attachment) => ({
       name: safeText(attachment.name),
       mimeType: attachment.mimeType,
       size: attachment.size,
@@ -286,7 +286,7 @@ export function buildSafeAiWorkshopPayload(
         attachment.extractedText,
         input.maxAttachmentTextLength ?? defaultAttachmentTextLimit,
       ),
-      tags: attachment.tags,
+      tags: safeTags(attachment.tags),
     })),
     privacyDisclosure: aiProcessingDisclosure,
     redactions: [],
@@ -309,6 +309,10 @@ export function buildSafeAiWorkshopPayload(
     disclosure: aiProcessingDisclosure,
     accessDecision,
   };
+
+  function safeTags(tags: string[]) {
+    return tags.slice(0, 8).map((tag) => safeText(tag, 80));
+  }
 }
 
 function checkAiPromptAccess(

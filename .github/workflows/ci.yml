@@ -6,6 +6,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -28,3 +31,82 @@ jobs:
 
       - name: Verify
         run: npm run ci
+
+  deployment-readiness:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate deployment documentation and environment contract
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_files=(
+            "docs/deployment.md"
+            "docs/production-architecture.md"
+            "docs/production-readiness-checklist.md"
+            ".env.example"
+          )
+
+          for file in "${required_files[@]}"; do
+            test -f "$file" || {
+              echo "Missing required deployment readiness file: $file" >&2
+              exit 1
+            }
+          done
+
+          required_env=(
+            "OPENAI_API_KEY"
+            "CODEX_API_TOKEN"
+            "AI_REQUIREMENT_WORKSHOP_BACKUP_DIR"
+            "VITE_SUPABASE_URL"
+            "VITE_SUPABASE_ANON_KEY"
+            "SUPABASE_SERVICE_ROLE_KEY"
+          )
+
+          for key in "${required_env[@]}"; do
+            grep -Eq "^${key}=" .env.example || {
+              echo ".env.example is missing $key" >&2
+              exit 1
+            }
+
+            grep -R "\`${key}\`" docs/deployment.md docs/production-architecture.md >/dev/null || {
+              echo "Deployment docs do not describe $key" >&2
+              exit 1
+            }
+          done
+
+          forbidden_public_env=(
+            "VITE_OPENAI_API_KEY"
+            "VITE_CODEX_API_TOKEN"
+            "VITE_SUPABASE_SERVICE_ROLE_KEY"
+            "VITE_SERVICE_ROLE_KEY"
+          )
+
+          for key in "${forbidden_public_env[@]}"; do
+            if grep -R "^[[:space:]]*${key}=" .env.example docs/*.md; then
+              echo "Forbidden browser-exposed secret variable documented or templated: $key" >&2
+              exit 1
+            fi
+          done
+
+          required_phrases=(
+            "Vercel"
+            "Supabase"
+            "Preview"
+            "Production"
+            "RLS"
+            "rollback"
+            "vercel env add"
+            "No secrets"
+          )
+
+          for phrase in "${required_phrases[@]}"; do
+            grep -F "$phrase" docs/deployment.md >/dev/null || {
+              echo "docs/deployment.md is missing required deployment guidance: $phrase" >&2
+              exit 1
+            }
+          done

@@ -23,8 +23,9 @@ build against.
 
 - No auth code is added by this architecture slice.
 - No Supabase schema, migration, RLS policy, or generated client is added here.
-- No deployment pipeline is changed here. The existing CI gate already runs
-  `npm run ci`, including production build verification.
+- No production deploy is performed by this architecture slice. The CI
+  deployment gate is verification-only and does not require Vercel, Supabase, or
+  OpenAI secrets.
 
 ## Target Topology
 
@@ -239,6 +240,8 @@ into auth or the workshop UI:
 
 - Vercel builds the SPA with `npm run build`.
 - GitHub Actions remains the stronger verification gate with `npm run ci`.
+- GitHub Actions also runs a deployment-readiness gate that validates the
+  documented environment contract without contacting Vercel or Supabase.
 - Production and Preview deployments use Vercel environment variables, not
   committed config.
 - Vercel Functions host the BFF routes that need server-only secrets.
@@ -246,6 +249,7 @@ into auth or the workshop UI:
   when testing migrations and RLS changes.
 - Production deploys should not run until Supabase migrations, RLS policies, and
   storage policies have a repeatable migration path and test evidence.
+- The operational deployment runbook is `docs/deployment.md`.
 
 ## Environment Variables
 
@@ -265,6 +269,11 @@ Production public variables:
 
 - `VITE_SUPABASE_URL`: browser-safe Supabase project URL.
 - `VITE_SUPABASE_ANON_KEY`: browser-safe Supabase anon key, protected by RLS.
+- `VITE_SUPABASE_ORGANIZATION_ID`: optional browser-safe organization selector
+  for controlled environments. Omit it when the app should create or select the
+  user's organization through the normal membership flow.
+- `VITE_MISSION_CONTROL_TELEMETRY_ENDPOINT`: optional browser-safe endpoint for
+  redacted Mission Control telemetry events.
 
 Production server-only variables:
 
@@ -299,6 +308,8 @@ Production deployment:
 - Production secrets live only in Vercel and Supabase secret managers.
 - Database migrations and RLS changes require verification evidence before
   deploy.
+- Deployment operators follow `docs/deployment.md` and attach the deployment
+  record template to the release evidence.
 
 ## V4 Local State Migration and Coexistence
 
@@ -357,7 +368,9 @@ npm run build
 npm run ci
 ```
 
-`npm run ci` is the full local gate and mirrors `.github/workflows/ci.yml`. For
+`npm run ci` is the full local application gate and is run by the GitHub
+`verify` job. `.github/workflows/ci.yml` also has a `deployment-readiness` job
+that checks the deployment docs and non-secret environment contract. For
 production implementation slices, add narrower tests before relying on the full
 gate:
 

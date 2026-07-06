@@ -36,6 +36,7 @@ describe("codexWorkshopApi", () => {
 
   it("calls OpenAI Responses with a minimized, non-stored workshop payload", async () => {
     const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
       const requestBody = JSON.parse(String(init?.body ?? "{}")) as {
         model?: string;
         store?: boolean;
@@ -48,10 +49,11 @@ describe("codexWorkshopApi", () => {
 
       expect(requestBody.model).toBe("gpt-5.5");
       expect(requestBody.store).toBe(false);
+      expect(headers.get("Authorization")).toBe("Bearer test-api-key");
+      expect(JSON.stringify(requestBody)).not.toContain("test-api-key");
       expect(requestBody.input).toContain("Connected alarm dashboard");
       expect(input.session?.recentMessages).toHaveLength(1);
       expect(input.session).not.toHaveProperty("secretDebugState");
-      expect(String(init?.headers)).not.toContain("test-api-key");
 
       return new Response(
         JSON.stringify({
@@ -101,16 +103,38 @@ describe("codexWorkshopApi", () => {
     const safePayload = createServerSafeWorkshopPayload({
       message: "Use api_key=supersecret before calling ops@example.com.",
       attachments: [
-        {
+        ...Array.from({ length: 13 }, (_, index) => ({
           name: "secrets.txt",
           mimeType: "text/plain",
           size: 64,
           status: "extracted",
-          summary: "Bearer abcdefghijklmnopqrstuvwxyz",
-          extractedText: "sk-abcdefghijklmnopqrstuvwxyz123456 ".repeat(400),
-          tags: ["attachment", "secret", "extra"],
+          summary:
+            index === 0
+              ? "Bearer abcdefghijklmnopqrstuvwxyz"
+              : `Summary ${index}`,
+          extractedText:
+            index === 0
+              ? "api_key=sk-abcdefghijklmnopqrstuvwxyz123456 ".repeat(400)
+              : `Extract ${index}`,
+          tags:
+            index === 0
+              ? [
+                  "attachment",
+                  "token=abcdefghijklmnopqrstuvwxyz",
+                  "tag-2",
+                  "tag-3",
+                  "tag-4",
+                  "tag-5",
+                  "tag-6",
+                  "tag-7",
+                  "tag-8",
+                ]
+              : ["attachment"],
           rawBytes: "must-not-pass",
-        },
+          storage: {
+            objectPath: "organizations/org-1/workshops/workshop-1/raw.txt",
+          },
+        })),
       ],
       session: {
         title: "Security review",
@@ -129,20 +153,39 @@ describe("codexWorkshopApi", () => {
           createdBy: "agent-quality",
           tags: ["requirement"],
         })),
+        attachments: [
+          {
+            name: "historical.txt",
+            mimeType: "text/plain",
+            size: 64,
+            status: "extracted",
+            summary: "19800101-1234",
+            extractedText: "ops@example.com",
+            tags: ["token=abcdefghijklmnopqrstuvwxyz"],
+            storage: {
+              objectPath: "organizations/org-1/workshops/workshop-1/raw.txt",
+            },
+          },
+        ],
       },
     });
     const serialized = JSON.stringify(safePayload);
 
+    expect(safePayload.newAttachments).toHaveLength(12);
     expect(safePayload.session.recentMessages).toHaveLength(8);
     expect(safePayload.session.artifacts).toHaveLength(24);
+    expect(safePayload.newAttachments[0]?.tags).toHaveLength(8);
     expect(
       safePayload.newAttachments[0]?.extractedText.length,
     ).toBeLessThanOrEqual(6000);
     expect(serialized).not.toContain("secretDebugState");
     expect(serialized).not.toContain("rawBytes");
+    expect(serialized).not.toContain("objectPath");
     expect(serialized).not.toContain("hunter2");
     expect(serialized).not.toContain("supersecret");
     expect(serialized).not.toContain("ops@example.com");
+    expect(serialized).not.toContain("abcdefghijklmnopqrstuvwxyz");
+    expect(serialized).not.toContain("19800101-1234");
     expect(serialized).toContain("[REDACTED:");
   });
 });
