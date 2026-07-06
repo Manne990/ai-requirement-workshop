@@ -56,6 +56,58 @@ describe("workshopStore export format", () => {
     ).toThrow(/missing session/i);
   });
 
+  it("redacts sensitive user-controlled text in full record exports", () => {
+    const session = {
+      ...createInitialWorkshopSession(
+        "2026-07-06T08:00:00.000Z",
+        "workshop-export-redaction",
+      ),
+      messages: [
+        ...createInitialWorkshopSession(
+          "2026-07-06T08:00:00.000Z",
+          "workshop-export-redaction",
+        ).messages,
+        {
+          id: "message-secret",
+          participantId: "human-1",
+          kind: "human-input" as const,
+          body: "Use password=hunter2 during the migration.",
+          relatedArtifactIds: [],
+          createdAt: "2026-07-06T08:01:00.000Z",
+        },
+      ],
+      attachments: [
+        {
+          id: "attachment-secret",
+          name: "secrets.txt",
+          mimeType: "text/plain",
+          size: 64,
+          extractedText: "Bearer abcdefghijklmnopqrstuvwxyz",
+          summary: "Contact ops@example.com with token=supersecret.",
+          status: "extracted" as const,
+          tags: ["api_key=sk-abcdefghijklmnopqrstuvwxyz123456"],
+          sourceMessageId: "message-secret",
+          createdAt: "2026-07-06T08:01:00.000Z",
+        },
+      ],
+    };
+    const record = createWorkshopRecord(session);
+    const exported = createWorkshopRecordExport(
+      record,
+      "2026-07-06T08:05:00.000Z",
+    );
+    const serialized = JSON.stringify(exported);
+    const parsed = parseWorkshopRecordExport(serialized);
+
+    expect(serialized).not.toContain("hunter2");
+    expect(serialized).not.toContain("abcdefghijklmnopqrstuvwxyz");
+    expect(serialized).not.toContain("supersecret");
+    expect(serialized).not.toContain("ops@example.com");
+    expect(serialized).toContain("[REDACTED:");
+    expect(parsed.id).toBe("workshop-export-redaction");
+    expect(parsed.session.attachments[0]?.summary).toContain("[REDACTED:");
+  });
+
   it("normalizes legacy imports that do not have prototypes yet", () => {
     const session = createInitialWorkshopSession(
       "2026-07-06T08:00:00.000Z",

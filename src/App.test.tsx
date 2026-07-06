@@ -343,6 +343,24 @@ describe("App", () => {
     expect(await screen.findAllByText(/source/i)).not.toHaveLength(0);
   });
 
+  it("rejects unsupported files in the attachment picker with a clear message", async () => {
+    render(<App />);
+    await registerForWorkshopAccess();
+
+    fireEvent.change(screen.getByLabelText(/attach workshop files/i), {
+      target: {
+        files: [
+          new File(["fake image"], "alarm-photo.png", { type: "image/png" }),
+        ],
+      },
+    });
+
+    expect(
+      await screen.findByText(/unsupported attachment type/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/alarm-photo.png/i)).not.toBeInTheDocument();
+  });
+
   it("imports a durable workshop record export", async () => {
     render(<App />);
     await registerForWorkshopAccess();

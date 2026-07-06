@@ -2,21 +2,46 @@ import {
   attachmentTagsForFile,
   summarizeAttachmentText,
   type AttachmentDraft,
+  type AttachmentExtractionStatus,
 } from "../domain/attachments";
+import {
+  defaultAttachmentSecurityPolicy,
+  reviewAttachmentDraft,
+  validateAttachmentUpload,
+  type AttachmentSecurityPolicy,
+} from "../domain/attachmentSecurity";
 
 const textExtensions = new Set(["txt", "md", "csv", "json", "log"]);
 
 export async function extractAttachmentDrafts(
   files: File[],
+  policy: AttachmentSecurityPolicy = defaultAttachmentSecurityPolicy,
 ): Promise<AttachmentDraft[]> {
-  return Promise.all(files.map(extractAttachmentDraft));
+  return Promise.all(files.map((file) => extractAttachmentDraft(file, policy)));
 }
 
-async function extractAttachmentDraft(file: File): Promise<AttachmentDraft> {
-  const extractedText = await extractFileText(file);
-  const status = extractedText.trim() ? "extracted" : "metadata-only";
+async function extractAttachmentDraft(
+  file: File,
+  policy: AttachmentSecurityPolicy,
+): Promise<AttachmentDraft> {
+  const validation = validateAttachmentUpload(
+    {
+      name: file.name,
+      mimeType: file.type,
+      size: file.size,
+    },
+    policy,
+  );
 
-  return {
+  if (!validation.allowed) {
+    throw new Error(validation.message);
+  }
+
+  const extractedText = await extractFileText(file);
+  const status: AttachmentExtractionStatus = extractedText.trim()
+    ? "extracted"
+    : "metadata-only";
+  const draft: AttachmentDraft = {
     name: file.name,
     mimeType: file.type,
     size: file.size,
@@ -24,6 +49,30 @@ async function extractAttachmentDraft(file: File): Promise<AttachmentDraft> {
     summary: summarizeAttachmentText(extractedText),
     status,
     tags: attachmentTagsForFile(file.name, file.type),
+  };
+  const review = reviewAttachmentDraft(draft, policy, new Date().toISOString());
+
+  if (review.status === "blocked") {
+    throw new Error(
+      review.reasons[0] ?? "Attachment blocked by security review.",
+    );
+  }
+
+  if (!review.safeForAi) {
+    throw new Error(
+      "Attachment requires manual review before it can be used in an AI workshop.",
+    );
+  }
+
+  return {
+    ...draft,
+    extractedText: review.safeExtractedText,
+    summary: review.safeSummary,
+    tags: [
+      ...draft.tags,
+      `security:${review.status}`,
+      ...review.redactions.map((finding) => `redacted:${finding.kind}`),
+    ].slice(0, 10),
   };
 }
 

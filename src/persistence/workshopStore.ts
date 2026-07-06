@@ -1,3 +1,4 @@
+import { redactSensitiveText } from "../domain/security";
 import type { WorkshopSession } from "../domain/workshop";
 
 export type SeenInsightIdsByParticipant = Record<string, string[]>;
@@ -142,7 +143,7 @@ export function createWorkshopRecordExport(
     kind: "AI_REQUIREMENT_WORKSHOP_RECORD_EXPORT",
     exportedAt,
     provenance: createWorkshopRecordExportProvenance(record, exportedAt),
-    record,
+    record: redactWorkshopRecordForExport(record),
   };
 }
 
@@ -256,6 +257,31 @@ function isExportEnvelope(value: unknown): value is WorkshopRecordExport {
     value.kind === "AI_REQUIREMENT_WORKSHOP_RECORD_EXPORT" &&
     typeof value.exportedAt === "string" &&
     "record" in value
+  );
+}
+
+function redactWorkshopRecordForExport(record: WorkshopRecord): WorkshopRecord {
+  return redactSensitiveExportValue(record) as WorkshopRecord;
+}
+
+function redactSensitiveExportValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    return redactSensitiveText(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(redactSensitiveExportValue);
+  }
+
+  if (!isObject(value)) {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, nested]) => [
+      key,
+      redactSensitiveExportValue(nested),
+    ]),
   );
 }
 
