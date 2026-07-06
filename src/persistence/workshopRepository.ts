@@ -11,6 +11,11 @@ import {
   createSupabaseWorkshopRecordStore,
   isConfiguredSupabaseWorkshopStore,
 } from "./supabaseWorkshopStore";
+import {
+  createServerWorkshopStore,
+  isConfiguredServerWorkshopStore,
+  serverWorkshopEndpoint,
+} from "./serverWorkshopStore";
 
 export type WorkshopRecordStore = {
   listSummaries: () => Promise<WorkshopSummary[]>;
@@ -56,8 +61,20 @@ export const localActiveWorkshopStore: ActiveWorkshopStore = {
 };
 
 export const workshopRepository = createWorkshopRepository({
-  recordStore: isConfiguredSupabaseWorkshopStore()
-    ? createSupabaseWorkshopRecordStore()
-    : localWorkshopRecordStore,
+  recordStore: selectedWorkshopRecordStore(),
   activeWorkshopStore: localActiveWorkshopStore,
 });
+
+function selectedWorkshopRecordStore() {
+  if (isConfiguredServerWorkshopStore()) {
+    return createServerWorkshopStore({
+      endpoint: serverWorkshopEndpoint(),
+    });
+  }
+
+  if (isConfiguredSupabaseWorkshopStore()) {
+    return createSupabaseWorkshopRecordStore();
+  }
+
+  return localWorkshopRecordStore;
+}

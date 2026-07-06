@@ -13,6 +13,7 @@ import {
   appendMissionControlTelemetryRecord,
   readMissionControlTelemetryFile,
 } from "./server/missionControlTelemetryApi.js";
+import { handleWorkshopRecordsRequest } from "./server/workshopRecordsApi.js";
 
 export default defineConfig({
   plugins: [react(), codexWorkshopApi()],
@@ -67,6 +68,31 @@ function codexWorkshopApi(): Plugin {
                 ? error.message
                 : "Workshop backup failed.";
             sendJson(response, 500, { error: message });
+          }
+          return;
+        }
+
+        if (
+          pathname === "/api/workshops" ||
+          pathname.startsWith("/api/workshops/")
+        ) {
+          try {
+            const payload =
+              request.method === "PUT" || request.method === "POST"
+                ? await readJsonBody(request)
+                : undefined;
+            const result = await handleWorkshopRecordsRequest({
+              method: request.method,
+              url: request.url,
+              body: payload,
+            });
+            sendJson(response, result.statusCode, result.body);
+          } catch (error) {
+            const message =
+              error instanceof Error
+                ? error.message
+                : "Workshop records request failed.";
+            sendJson(response, 400, { error: message });
           }
           return;
         }

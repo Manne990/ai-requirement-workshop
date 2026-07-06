@@ -3,10 +3,26 @@ import { createInitialWorkshopSession } from "../domain/workshop";
 import { createWorkshopRecord, toWorkshopSummary } from "./workshopStore";
 import {
   createServerWorkshopStore,
+  isConfiguredServerWorkshopStore,
+  serverWorkshopEndpoint,
   type WorkshopFetch,
 } from "./serverWorkshopStore";
 
 describe("serverWorkshopStore", () => {
+  it("is enabled only when a workshop record endpoint is configured", () => {
+    expect(isConfiguredServerWorkshopStore({})).toBe(false);
+    expect(
+      isConfiguredServerWorkshopStore({
+        VITE_WORKSHOP_RECORD_ENDPOINT: " /api/workshops ",
+      }),
+    ).toBe(true);
+    expect(
+      serverWorkshopEndpoint({
+        VITE_WORKSHOP_RECORD_ENDPOINT: " /api/workshops ",
+      }),
+    ).toBe("/api/workshops");
+  });
+
   it("lists workshop summaries from a JSON server endpoint", async () => {
     const record = createWorkshopRecord(
       createInitialWorkshopSession(

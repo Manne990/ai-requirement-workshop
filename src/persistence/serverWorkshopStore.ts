@@ -70,6 +70,18 @@ export function createServerWorkshopStore(
   };
 }
 
+export function isConfiguredServerWorkshopStore(
+  env: Record<string, string | undefined> = import.meta.env,
+) {
+  return Boolean(env.VITE_WORKSHOP_RECORD_ENDPOINT?.trim());
+}
+
+export function serverWorkshopEndpoint(
+  env: Record<string, string | undefined> = import.meta.env,
+) {
+  return env.VITE_WORKSHOP_RECORD_ENDPOINT?.trim() || defaultEndpoint;
+}
+
 function normalizeEndpoint(endpoint: string) {
   return endpoint.replace(/\/+$/, "") || defaultEndpoint;
 }
