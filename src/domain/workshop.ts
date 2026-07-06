@@ -7,6 +7,7 @@ export type AgentPerspective =
   "business" | "ux" | "risk" | "technical" | "quality";
 
 export type ArtifactType =
+  | "source"
   | "problem"
   | "goal"
   | "actor"
@@ -79,6 +80,7 @@ export type WorkshopSession = {
   title: string;
   participants: Participant[];
   messages: WorkshopMessage[];
+  attachments: import("./attachments").WorkshopAttachment[];
   artifacts: WorkshopArtifact[];
   links: ArtifactLink[];
   selectedArtifactId?: string;
@@ -178,6 +180,7 @@ export const initialParticipants: Participant[] = [
 
 export function createInitialWorkshopSession(
   createdAt = now(),
+  id = createWorkshopId(createdAt),
 ): WorkshopSession {
   const welcomeMessage: WorkshopMessage = {
     id: "message-welcome",
@@ -189,10 +192,11 @@ export function createInitialWorkshopSession(
   };
 
   return {
-    id: "workshop-session-v1",
+    id,
     title: "AI Requirement Workshop",
     participants: initialParticipants,
     messages: [welcomeMessage],
+    attachments: [],
     artifacts: [],
     links: [],
     selectedArtifactId: undefined,
@@ -200,6 +204,15 @@ export function createInitialWorkshopSession(
     followDiscussion: true,
     updatedAt: createdAt,
   };
+}
+
+function createWorkshopId(createdAt: string) {
+  const stableTime = createdAt.replace(/\D/g, "").slice(0, 17);
+  const random =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID().slice(0, 8)
+      : Math.random().toString(36).slice(2, 10);
+  return `workshop-${stableTime}-${random}`;
 }
 
 export function submitHumanMessage(
@@ -353,6 +366,7 @@ export function generateWorkshopReport(
     generatedAt,
     sections: [
       buildReportSection("context", "Context and Goals", accepted, [
+        "source",
         "problem",
         "goal",
         "actor",
@@ -738,6 +752,7 @@ function buildFacilitatorResponse(
 function artifactTypeLabel(type: ArtifactType, language: WorkshopLanguage) {
   const labels: Record<WorkshopLanguage, Record<ArtifactType, string>> = {
     en: {
+      source: "source",
       problem: "problem",
       goal: "goal",
       actor: "actor",
@@ -749,6 +764,7 @@ function artifactTypeLabel(type: ArtifactType, language: WorkshopLanguage) {
       decision: "decision",
     },
     sv: {
+      source: "källa",
       problem: "problem",
       goal: "mål",
       actor: "aktör",
