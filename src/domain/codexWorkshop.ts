@@ -1,4 +1,5 @@
 import { type AttachmentDraft, type WorkshopAttachment } from "./attachments";
+import { createProductionAttachmentRecord } from "./attachmentSecurity";
 import {
   evaluateRequirementQuality,
   firstRequirementQualityQuestion,
@@ -37,6 +38,16 @@ export type CodexWorkshopTurn = {
   facilitatorMessage: string;
   artifacts: CodexArtifactDraft[];
   participantUpdates?: CodexParticipantUpdate[];
+};
+
+export type AttachmentProductionContext = {
+  organizationId: string;
+  workshopId: string;
+  uploadedByUserId: string;
+};
+
+export type ApplyCodexWorkshopTurnOptions = {
+  attachmentContext?: AttachmentProductionContext;
 };
 
 const validArtifactTypes: ArtifactType[] = [
@@ -93,6 +104,7 @@ export function applyCodexWorkshopTurn(
   turn: CodexWorkshopTurn,
   attachments: AttachmentDraft[] = [],
   createdAt = now(),
+  options: ApplyCodexWorkshopTurnOptions = {},
 ): WorkshopSession {
   const trimmed = body.trim() || attachmentOnlyMessage(attachments);
   if (!trimmed && attachments.length === 0) {
@@ -121,6 +133,7 @@ export function applyCodexWorkshopTurn(
     session,
     humanMessage.id,
     createdAt,
+    options.attachmentContext,
   );
   const attachmentArtifacts = createAttachmentArtifacts(
     normalizedAttachments,
@@ -304,21 +317,38 @@ function normalizeAttachments(
   session: WorkshopSession,
   sourceMessageId: string,
   createdAt: string,
+  context?: AttachmentProductionContext,
 ): WorkshopAttachment[] {
   const attachmentStartIndex = (session.attachments ?? []).length + 1;
 
-  return drafts.map((draft, index) => ({
-    id: createId("attachment", attachmentStartIndex + index),
-    name: draft.name,
-    mimeType: draft.mimeType,
-    size: draft.size,
-    extractedText: draft.extractedText,
-    summary: draft.summary,
-    status: draft.status,
-    tags: draft.tags,
-    sourceMessageId,
-    createdAt,
-  }));
+  return drafts.map((draft, index) => {
+    const id = createId("attachment", attachmentStartIndex + index);
+
+    if (context) {
+      return createProductionAttachmentRecord({
+        draft,
+        id,
+        organizationId: context.organizationId,
+        workshopId: context.workshopId,
+        sourceMessageId,
+        uploadedByUserId: context.uploadedByUserId,
+        createdAt,
+      });
+    }
+
+    return {
+      id,
+      name: draft.name,
+      mimeType: draft.mimeType,
+      size: draft.size,
+      extractedText: draft.extractedText,
+      summary: draft.summary,
+      status: draft.status,
+      tags: draft.tags,
+      sourceMessageId,
+      createdAt,
+    };
+  });
 }
 
 function createAttachmentArtifacts(

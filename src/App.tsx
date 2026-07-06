@@ -925,6 +925,15 @@ function WorkshopRoom() {
           turn,
           attachmentsForTurn,
           submittedAt,
+          organizationRuntime && authSession?.user
+            ? {
+                attachmentContext: {
+                  organizationId: organizationRuntime.context.organization.id,
+                  workshopId: current.id,
+                  uploadedByUserId: authSession.user.id,
+                },
+              }
+            : undefined,
         );
         void publishRealtimeSessionDelta(current, next);
         return next;

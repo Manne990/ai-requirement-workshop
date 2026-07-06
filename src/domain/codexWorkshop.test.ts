@@ -119,6 +119,74 @@ describe("Codex workshop turn", () => {
     expect(next.artifacts[1]?.type).toBe("question");
   });
 
+  it("adds scoped production attachment provenance when organization context is available", () => {
+    const next = applyCodexWorkshopTurn(
+      createInitialWorkshopSession("2026-07-01T10:00:00.000Z", "workshop-1"),
+      "Use this preparatory work.",
+      {
+        facilitatorMessage:
+          "I added the attached source to the canvas. Which part should we validate first?",
+        artifacts: [],
+      },
+      [
+        {
+          name: "requirements.csv",
+          mimeType: "text/csv",
+          size: 42,
+          extractedText: "id,title\n1,Alarm dashboard",
+          summary: "id,title 1,Alarm dashboard",
+          status: "extracted",
+          tags: ["attachment", "file:csv"],
+        },
+      ],
+      "2026-07-01T10:01:00.000Z",
+      {
+        attachmentContext: {
+          organizationId: "org-1",
+          workshopId: "workshop-1",
+          uploadedByUserId: "user-owner",
+        },
+      },
+    );
+    const [attachment] = next.attachments as Array<{
+      organizationId?: string;
+      workshopId?: string;
+      uploadedByUserId?: string;
+      provenance?: {
+        organizationId?: string;
+        workshopId?: string;
+        sourceMessageId?: string;
+        uploadedByUserId?: string;
+      };
+      storage?: { provider?: string; status?: string; objectPath?: string };
+      securityReview?: { status?: string; safeForAi?: boolean };
+    }>;
+
+    expect(attachment).toMatchObject({
+      organizationId: "org-1",
+      workshopId: "workshop-1",
+      uploadedByUserId: "user-owner",
+      provenance: {
+        organizationId: "org-1",
+        workshopId: "workshop-1",
+        sourceMessageId: "message-002",
+        uploadedByUserId: "user-owner",
+      },
+      storage: {
+        provider: "local-browser",
+        status: "metadata-only",
+      },
+      securityReview: {
+        status: "accepted",
+        safeForAi: true,
+      },
+    });
+    expect(attachment?.storage).not.toHaveProperty("objectPath");
+    expect(next.artifacts[0]?.tags).toEqual(
+      expect.arrayContaining(["security:accepted", "storage:metadata-only"]),
+    );
+  });
+
   it("adds deterministic quality question artifacts for weak requirement drafts", () => {
     const next = applyCodexWorkshopTurn(
       createInitialWorkshopSession("2026-07-01T10:00:00.000Z"),
