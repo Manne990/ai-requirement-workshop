@@ -148,8 +148,9 @@ Required data domains:
   prototype signoff.
 - `prototypes`: generated or linked prototype metadata, ownership, status, and
   relation to requirements.
-- `attachments`: metadata for uploaded files, extraction status, storage object
-  path, source message id, checksum, and retention policy.
+- `attachments`: metadata for uploaded files, extraction status, security scan
+  status, storage object path/status, source message id, uploader, checksum, and
+  retention policy.
 - `audit_events`: append-only evidence for security-sensitive and workflow
   events such as sign-in, membership changes, imports, AI turns, status changes,
   approvals, exports, and deletes.
@@ -188,6 +189,22 @@ organizations/{organization_id}/workshops/{workshop_id}/attachments/{attachment_
 Attachment metadata belongs in Postgres. Storage policies must require the same
 organization/workshop access as the related metadata row. Signed URLs should be
 short-lived and generated only after an authorization check.
+
+Attachment records must keep three states separate:
+
+- extraction status: whether local parsing produced usable text or metadata only
+- security scan status: accepted, needs review, or blocked
+- storage status: active provider object, quarantined provider object, or
+  metadata-only import/local record
+
+Provider-backed attachments must use the canonical object path shown above and a
+SHA-256 checksum. The path and checksum are part of provenance evidence and must
+match the organization, workshop, attachment id, and sanitized file name before
+the object can be referenced from metadata. Attachments that need manual review
+may keep a quarantined provider object, but signed URLs and AI prompt use remain
+blocked until review accepts the record. Imported or local-only attachments may
+seed metadata and redacted source artifacts, but they must not claim a provider
+object path unless the original file is uploaded and checksummed.
 
 ### Realtime
 

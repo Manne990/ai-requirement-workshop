@@ -23,6 +23,15 @@ export type AttachmentUploadRejectionReason =
   "empty-name" | "empty-file" | "too-large" | "unsupported-type";
 
 export type AttachmentScanStatus = "accepted" | "needs-review" | "blocked";
+export type AttachmentStorageStatus =
+  "active" | "quarantined" | "metadata-only";
+
+export type AttachmentStorageValidationReason =
+  | "missing-object-path"
+  | "object-path-scope-mismatch"
+  | "missing-checksum"
+  | "invalid-checksum"
+  | "object-path-not-supported";
 
 export type AttachmentUploadMetadata = {
   name: string;
@@ -62,10 +71,24 @@ export type AttachmentSecurityReview = {
 
 export type AttachmentStorageRef = {
   provider: AttachmentStorageProvider;
+  status?: AttachmentStorageStatus;
   objectPath?: string;
   checksumSha256?: string;
   storedAt?: string;
 };
+
+export type AttachmentStorageValidationDecision =
+  | {
+      allowed: true;
+      expectedObjectPath?: string;
+      message: string;
+    }
+  | {
+      allowed: false;
+      reason: AttachmentStorageValidationReason;
+      expectedObjectPath?: string;
+      message: string;
+    };
 
 export type AttachmentProvenance = {
   organizationId: string;
@@ -131,6 +154,19 @@ export const defaultAttachmentSecurityPolicy: AttachmentSecurityPolicy = {
     "text/markdown",
     "text/plain",
   ],
+};
+
+const supportedMimeTypesByExtension: Record<string, string[]> = {
+  csv: ["application/vnd.ms-excel", "text/csv", "text/plain"],
+  docx: [
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ],
+  json: ["application/json", "text/plain"],
+  log: ["text/plain"],
+  md: ["text/markdown", "text/plain"],
+  txt: ["text/plain"],
+  xls: ["application/vnd.ms-excel"],
+  xlsx: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
 };
 
 export function validateAttachmentUpload(
@@ -213,7 +249,7 @@ export function reviewAttachmentDraft(
     safeExtractedText: status === "blocked" ? "" : extractedText.redactedText,
     safeSummary: status === "blocked" ? "" : summary.redactedText,
     redactions,
-    safeForAi: status !== "blocked",
+    safeForAi: status === "accepted",
     reasons: reviewReasons(validation, redactions, hasCriticalFinding),
     reviewedAt,
   };
@@ -222,11 +258,22 @@ export function reviewAttachmentDraft(
 export function createProductionAttachmentRecord(
   input: CreateProductionAttachmentRecordInput,
 ): ProductionAttachmentRecord {
-  const review = reviewAttachmentDraft(
-    input.draft,
-    input.policy,
-    input.createdAt,
+  const organizationId = requiredNonEmpty(
+    input.organizationId,
+    "organizationId",
   );
+  const workshopId = requiredNonEmpty(input.workshopId, "workshopId");
+  const attachmentId = requiredNonEmpty(input.id, "attachmentId");
+  const sourceMessageId = requiredNonEmpty(
+    input.sourceMessageId,
+    "sourceMessageId",
+  );
+  const uploadedByUserId = requiredNonEmpty(
+    input.uploadedByUserId,
+    "uploadedByUserId",
+  );
+  const createdAt = requiredNonEmpty(input.createdAt, "createdAt");
+  const review = reviewAttachmentDraft(input.draft, input.policy, createdAt);
 
   if (!review.validation.allowed) {
     throw new Error(review.validation.message);
@@ -238,46 +285,57 @@ export function createProductionAttachmentRecord(
     );
   }
 
+  const name = input.draft.name.trim();
+  const storage = normalizeAttachmentStorageRef(
+    input.storage ??
+      createAttachmentStorageRef({
+        provider: "local-browser",
+        organizationId,
+        workshopId,
+        attachmentId,
+        fileName: name,
+        storedAt: createdAt,
+      }),
+    {
+      organizationId,
+      workshopId,
+      attachmentId,
+      fileName: name,
+      scanStatus: review.status,
+    },
+  );
   const tags = [
-    ...attachmentTagsForFile(input.draft.name, input.draft.mimeType),
+    ...attachmentTagsForFile(name, input.draft.mimeType),
     ...input.draft.tags,
     `security:${review.status}`,
+    `storage:${storage.status}`,
   ];
 
   return {
-    id: input.id,
-    name: input.draft.name.trim(),
+    id: attachmentId,
+    name,
     mimeType: input.draft.mimeType,
     size: input.draft.size,
     extractedText: review.safeExtractedText,
     summary: review.safeSummary,
     status: input.draft.status,
     tags: [...new Set(tags)].slice(0, 10),
-    sourceMessageId: input.sourceMessageId,
-    createdAt: input.createdAt,
-    organizationId: input.organizationId,
-    workshopId: input.workshopId,
-    uploadedByUserId: input.uploadedByUserId,
+    sourceMessageId,
+    createdAt,
+    organizationId,
+    workshopId,
+    uploadedByUserId,
     provenance: {
-      organizationId: input.organizationId,
-      workshopId: input.workshopId,
-      attachmentId: input.id,
-      sourceMessageId: input.sourceMessageId,
-      uploadedByUserId: input.uploadedByUserId,
-      capturedAt: input.createdAt,
-      originalName: input.draft.name,
+      organizationId,
+      workshopId,
+      attachmentId,
+      sourceMessageId,
+      uploadedByUserId,
+      capturedAt: createdAt,
+      originalName: name,
       source: input.source ?? "chat-upload",
     },
-    storage:
-      input.storage ??
-      createAttachmentStorageRef({
-        provider: "local-browser",
-        organizationId: input.organizationId,
-        workshopId: input.workshopId,
-        attachmentId: input.id,
-        fileName: input.draft.name,
-        storedAt: input.createdAt,
-      }),
+    storage,
     securityReview: review,
     retention: {
       policy: "workshop-lifetime",
@@ -297,24 +355,101 @@ export function createAttachmentStorageRef(input: {
   if (input.provider !== "supabase-storage") {
     return {
       provider: input.provider,
+      status: "metadata-only",
       checksumSha256: input.checksumSha256,
       storedAt: input.storedAt,
     };
   }
 
-  return {
+  const storage: AttachmentStorageRef = {
     provider: input.provider,
-    objectPath: [
-      "organizations",
-      safePathSegment(input.organizationId),
-      "workshops",
-      safePathSegment(input.workshopId),
-      "attachments",
-      safePathSegment(input.attachmentId),
-      safePathSegment(input.fileName),
-    ].join("/"),
+    status: "active",
+    objectPath: attachmentObjectPath(input),
     checksumSha256: input.checksumSha256,
     storedAt: input.storedAt,
+  };
+  const validation = validateAttachmentStorageRef({
+    storage,
+    organizationId: input.organizationId,
+    workshopId: input.workshopId,
+    attachmentId: input.attachmentId,
+    fileName: input.fileName,
+  });
+
+  if (!validation.allowed) {
+    throw new Error(validation.message);
+  }
+
+  return storage;
+}
+
+export function validateAttachmentStorageRef(input: {
+  storage: AttachmentStorageRef;
+  organizationId: string;
+  workshopId: string;
+  attachmentId: string;
+  fileName: string;
+}): AttachmentStorageValidationDecision {
+  if (input.storage.provider !== "supabase-storage") {
+    if (input.storage.objectPath) {
+      return {
+        allowed: false,
+        reason: "object-path-not-supported",
+        message:
+          "Only provider-backed attachment storage may include an object path.",
+      };
+    }
+
+    return {
+      allowed: true,
+      message: "Attachment metadata does not reference provider storage.",
+    };
+  }
+
+  const expectedObjectPath = attachmentObjectPath(input);
+
+  if (!input.storage.objectPath) {
+    return {
+      allowed: false,
+      reason: "missing-object-path",
+      expectedObjectPath,
+      message: "Provider-backed attachment storage requires an object path.",
+    };
+  }
+
+  if (input.storage.objectPath !== expectedObjectPath) {
+    return {
+      allowed: false,
+      reason: "object-path-scope-mismatch",
+      expectedObjectPath,
+      message:
+        "Attachment storage object path must match the organization, workshop, attachment, and file name.",
+    };
+  }
+
+  if (!input.storage.checksumSha256) {
+    return {
+      allowed: false,
+      reason: "missing-checksum",
+      expectedObjectPath,
+      message:
+        "Provider-backed attachment storage requires a SHA-256 checksum for provenance.",
+    };
+  }
+
+  if (!/^[a-f0-9]{64}$/i.test(input.storage.checksumSha256)) {
+    return {
+      allowed: false,
+      reason: "invalid-checksum",
+      expectedObjectPath,
+      message: "Attachment checksum must be a 64-character SHA-256 hex digest.",
+    };
+  }
+
+  return {
+    allowed: true,
+    expectedObjectPath,
+    message: "Attachment storage object path and checksum are scoped.",
   };
 }
 
@@ -352,7 +487,9 @@ function reviewReasons(
   }
 
   if (redactions.length > 0) {
-    return ["Sensitive values were redacted before storage and AI prompt use."];
+    return [
+      "Sensitive values were redacted; manual review is required before AI prompt use.",
+    ];
   }
 
   return ["Attachment accepted by local policy review."];
@@ -363,12 +500,19 @@ function isSupportedAttachmentType(
   mimeType: string,
   policy: AttachmentSecurityPolicy,
 ) {
-  return (
-    (extension !== undefined &&
-      policy.supportedExtensions.includes(extension)) ||
-    policy.supportedMimeTypes.includes(mimeType) ||
-    mimeType.startsWith("text/")
-  );
+  if (extension) {
+    if (!policy.supportedExtensions.includes(extension)) {
+      return false;
+    }
+
+    if (!mimeType) {
+      return true;
+    }
+
+    return (supportedMimeTypesByExtension[extension] ?? []).includes(mimeType);
+  }
+
+  return policy.supportedMimeTypes.includes(mimeType);
 }
 
 function extensionForName(name: string) {
@@ -385,6 +529,74 @@ function safePathSegment(value: string) {
   const safe = value
     .trim()
     .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/^\.+/, "")
     .slice(0, 120);
   return safe || "unnamed";
+}
+
+function attachmentObjectPath(input: {
+  organizationId: string;
+  workshopId: string;
+  attachmentId: string;
+  fileName: string;
+}) {
+  return [
+    "organizations",
+    safePathSegment(input.organizationId),
+    "workshops",
+    safePathSegment(input.workshopId),
+    "attachments",
+    safePathSegment(input.attachmentId),
+    safePathSegment(input.fileName),
+  ].join("/");
+}
+
+function normalizeAttachmentStorageRef(
+  storage: AttachmentStorageRef,
+  context: {
+    organizationId: string;
+    workshopId: string;
+    attachmentId: string;
+    fileName: string;
+    scanStatus: AttachmentScanStatus;
+  },
+): AttachmentStorageRef {
+  const validation = validateAttachmentStorageRef({
+    storage,
+    organizationId: context.organizationId,
+    workshopId: context.workshopId,
+    attachmentId: context.attachmentId,
+    fileName: context.fileName,
+  });
+
+  if (!validation.allowed) {
+    throw new Error(validation.message);
+  }
+
+  if (storage.provider !== "supabase-storage") {
+    return {
+      provider: storage.provider,
+      status: "metadata-only",
+      checksumSha256: storage.checksumSha256,
+      storedAt: storage.storedAt,
+    };
+  }
+
+  return {
+    provider: storage.provider,
+    status: context.scanStatus === "accepted" ? "active" : "quarantined",
+    objectPath: storage.objectPath,
+    checksumSha256: storage.checksumSha256,
+    storedAt: storage.storedAt,
+  };
+}
+
+function requiredNonEmpty(value: string, fieldName: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    throw new Error(`Attachment provenance requires ${fieldName}.`);
+  }
+
+  return trimmed;
 }

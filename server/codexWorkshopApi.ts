@@ -50,6 +50,11 @@ export async function createCodexWorkshopTurn(
   if (!message && attachments.length === 0) {
     throw new Error("Missing workshop message or attachment.");
   }
+  const safePayload = createServerSafeWorkshopPayload({
+    message,
+    attachments,
+    session: payload.session,
+  });
 
   const upstream = await fetchImpl("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -60,16 +65,7 @@ export async function createCodexWorkshopTurn(
     body: JSON.stringify({
       model: CODEX_MODEL,
       instructions: workshopInstructions(),
-      input: JSON.stringify(
-        {
-          latestHumanMessage:
-            message || "The human attached files for workshop review.",
-          newAttachments: attachments,
-          session: payload.session ?? {},
-        },
-        null,
-        2,
-      ),
+      input: JSON.stringify(safePayload, null, 2),
       store: false,
     }),
   });
@@ -80,6 +76,22 @@ export async function createCodexWorkshopTurn(
   }
 
   return parseCodexTurn(extractOutputText(data));
+}
+
+export function createServerSafeWorkshopPayload(payload: IncomingBody) {
+  const message =
+    typeof payload.message === "string" ? payload.message.trim() : "";
+  const attachments = Array.isArray(payload.attachments)
+    ? payload.attachments
+    : [];
+
+  return {
+    latestHumanMessage:
+      safeString(message, 2000) ||
+      "The human attached files for workshop review.",
+    newAttachments: attachments.slice(0, 12).map(readSafeAttachment),
+    session: readSafeSession(payload.session),
+  };
 }
 
 export function parseCodexTurn(output: string) {
@@ -162,4 +174,111 @@ function extractJson(output: string) {
   }
 
   return trimmed.slice(start, end + 1);
+}
+
+function readSafeSession(value: unknown) {
+  const session = isObject(value) ? value : {};
+  return {
+    title: safeString(session.title, 180),
+    visualizationMode: safeString(session.visualizationMode, 40),
+    followDiscussion:
+      typeof session.followDiscussion === "boolean"
+        ? session.followDiscussion
+        : true,
+    participants: readArray(session.participants)
+      .slice(0, 12)
+      .map((participant) => ({
+        id: safeString(participant.id, 80),
+        type: safeString(participant.type, 40),
+        name: safeString(participant.name, 120),
+        perspective: safeString(participant.perspective, 240),
+        status: safeString(participant.status, 40),
+        currentActivity: safeString(participant.currentActivity, 240),
+      })),
+    recentMessages: readArray(session.recentMessages)
+      .slice(-8)
+      .map((message) => ({
+        participantId: safeString(message.participantId, 80),
+        kind: safeString(message.kind, 40),
+        body: safeString(message.body, 2000),
+      })),
+    artifacts: readArray(session.artifacts)
+      .slice(-24)
+      .map((artifact) => ({
+        id: safeString(artifact.id, 100),
+        type: safeString(artifact.type, 40),
+        title: safeString(artifact.title, 180),
+        content: safeString(artifact.content, 3000),
+        status: safeString(artifact.status, 40),
+        createdBy: safeString(artifact.createdBy, 80),
+        tags: readStringArray(artifact.tags, 8, 40),
+      })),
+    attachments: readArray(session.attachments)
+      .slice(-12)
+      .map(readSafeAttachment),
+  };
+}
+
+function readSafeAttachment(value: unknown) {
+  const attachment = isObject(value) ? value : {};
+  return {
+    name: safeString(attachment.name, 180),
+    mimeType: safeString(attachment.mimeType, 120),
+    size: readNumber(attachment.size),
+    status: safeString(attachment.status, 60),
+    summary: safeString(attachment.summary, 1000),
+    extractedText: safeString(attachment.extractedText, 6000),
+    tags: readStringArray(attachment.tags, 8, 40),
+  };
+}
+
+function readArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isObject).map((item) => item) : [];
+}
+
+function readStringArray(value: unknown, limit: number, maxLength: number) {
+  return Array.isArray(value)
+    ? value
+        .filter((item): item is string => typeof item === "string")
+        .slice(0, limit)
+        .map((item) => safeString(item, maxLength))
+    : [];
+}
+
+function readNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function safeString(value: unknown, maxLength: number) {
+  if (typeof value !== "string" || !value.trim()) {
+    return "";
+  }
+  const redacted = redactServerSensitiveText(value.trim());
+  return redacted.length <= maxLength
+    ? redacted
+    : `${redacted.slice(0, Math.max(0, maxLength - 3))}...`;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function redactServerSensitiveText(text: string) {
+  return text
+    .replace(
+      /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+      "[REDACTED:private-key]",
+    )
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{16,}/gi, "[REDACTED:bearer-token]")
+    .replace(
+      /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
+      "[REDACTED:jwt]",
+    )
+    .replace(/\bsk-[A-Za-z0-9_-]{20,}\b/g, "[REDACTED:api-key]")
+    .replace(
+      /\b(?:password|passcode|secret|api[_-]?key|token)\s*[:=]\s*["']?[^"'\s,;]{6,}["']?/gi,
+      "[REDACTED:credential]",
+    )
+    .replace(/\b(?:19|20)?\d{6}[-+]\d{4}\b/g, "[REDACTED:personal-id]")
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[REDACTED:email]");
 }

@@ -25,7 +25,23 @@ export type WorkshopRecordExport = {
   schema_version: 1;
   kind: "AI_REQUIREMENT_WORKSHOP_RECORD_EXPORT";
   exportedAt: string;
+  provenance: WorkshopRecordExportProvenance;
   record: WorkshopRecord;
+};
+
+export type WorkshopRecordExportProvenance = {
+  source: "workshop-store";
+  generator: "createWorkshopRecordExport";
+  exportedAt: string;
+  workshopId: string;
+  workshopUpdatedAt: string;
+  counts: {
+    messages: number;
+    artifacts: number;
+    attachments: number;
+    prototypes: number;
+    prototypeVersions: number;
+  };
 };
 
 const dbName = "ai-requirement-workshop";
@@ -116,6 +132,7 @@ export function createWorkshopRecordExport(
     schema_version: 1,
     kind: "AI_REQUIREMENT_WORKSHOP_RECORD_EXPORT",
     exportedAt,
+    provenance: createWorkshopRecordExportProvenance(record, exportedAt),
     record,
   };
 }
@@ -228,6 +245,29 @@ function isExportEnvelope(value: unknown): value is WorkshopRecordExport {
     typeof value.exportedAt === "string" &&
     "record" in value
   );
+}
+
+function createWorkshopRecordExportProvenance(
+  record: WorkshopRecord,
+  exportedAt: string,
+): WorkshopRecordExportProvenance {
+  return {
+    source: "workshop-store",
+    generator: "createWorkshopRecordExport",
+    exportedAt,
+    workshopId: record.id,
+    workshopUpdatedAt: record.updatedAt,
+    counts: {
+      messages: record.session.messages.length,
+      artifacts: record.session.artifacts.length,
+      attachments: record.session.attachments?.length ?? 0,
+      prototypes: record.session.prototypes?.length ?? 0,
+      prototypeVersions: (record.session.prototypes ?? []).reduce(
+        (count, prototype) => count + prototype.versions.length,
+        0,
+      ),
+    },
+  };
 }
 
 function normalizeWorkshopRecord(value: unknown): WorkshopRecord {

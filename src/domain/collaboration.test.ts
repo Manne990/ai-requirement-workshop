@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyCollaborationEvent,
   applyPresenceEvent,
+  compareCollaborationEvents,
   createCollaborationEvent,
   createCollaborationProjection,
   createPresenceEvent,
@@ -192,6 +193,78 @@ describe("collaboration domain", () => {
         kind: "revision-conflict",
         targetType: "artifact",
         targetId: artifact?.id,
+        expectedRevision: 0,
+        actualRevision: 1,
+        localValue: "accepted",
+        incomingValue: "rejected",
+      }),
+    ]);
+  });
+
+  it("applies concurrent two-session status updates in deterministic order", () => {
+    const artifact = artifactDraft(
+      "artifact-concurrent",
+      "2026-07-06T09:01:00.000Z",
+    );
+    const session = {
+      ...createInitialWorkshopSession("2026-07-06T09:00:00.000Z", workshopId),
+      artifacts: [artifact],
+      selectedArtifactId: artifact.id,
+      updatedAt: artifact.updatedAt,
+    };
+    const accept = createCollaborationEvent({
+      type: "artifact.statusChanged",
+      workshopId,
+      clientId: "client-a",
+      clientSessionId: "session-a",
+      sequence: 2,
+      occurredAt: "2026-07-06T09:02:00.000Z",
+      actor,
+      payload: {
+        artifactId: artifact.id,
+        status: "accepted",
+        expectedRevision: 0,
+        updatedAt: "2026-07-06T09:02:00.000Z",
+      },
+    });
+    const reject = createCollaborationEvent({
+      type: "artifact.statusChanged",
+      workshopId,
+      clientId: "client-b",
+      clientSessionId: "session-b",
+      sequence: 1,
+      occurredAt: "2026-07-06T09:02:00.000Z",
+      actor: { ...actor, participantId: "human-2", displayName: "Grace" },
+      payload: {
+        artifactId: artifact.id,
+        status: "rejected",
+        expectedRevision: 0,
+        updatedAt: "2026-07-06T09:02:00.000Z",
+      },
+    });
+
+    const orderedEvents = [reject, accept].sort(compareCollaborationEvents);
+    const projection = orderedEvents.reduce(
+      applyCollaborationEvent,
+      createCollaborationProjection(session),
+    );
+
+    expect(orderedEvents.map((event) => event.id)).toEqual([
+      "event:workshop-collab:client-a:session-a:000002",
+      "event:workshop-collab:client-b:session-b:000001",
+    ]);
+    expect(
+      projection.session.artifacts.find(
+        (candidate) => candidate.id === artifact.id,
+      )?.status,
+    ).toBe("accepted");
+    expect(projection.artifactRevisions[artifact.id]).toBe(1);
+    expect(projection.conflicts).toEqual([
+      expect.objectContaining({
+        eventId: reject.id,
+        kind: "revision-conflict",
+        targetType: "artifact",
+        targetId: artifact.id,
         expectedRevision: 0,
         actualRevision: 1,
         localValue: "accepted",

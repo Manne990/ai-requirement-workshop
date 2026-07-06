@@ -83,6 +83,10 @@ V4 hardens the continuation model so important workshop state is not trapped onl
 
 This is still not a remote database or multi-user sync. It is a durable local artifact boundary that makes recovery, audit, and cross-machine handoff possible.
 
+## Mission Control Telemetry Contract
+
+The domain layer now defines provider-neutral Mission Control telemetry contracts without emitting runtime data from the UI. The app can later emit typed events and KPI payloads for workshop opened, message sent, requirement approved, consolidation applied, prototype generated, and auth boundary activity. Each payload carries source and provenance fields so Mission Control can connect product signals back to workshop sessions, messages, artifacts, requirements, attachments, and auth boundaries.
+
 ## Feedback Loop
 
 V1 must remain easy for agents and humans to verify:

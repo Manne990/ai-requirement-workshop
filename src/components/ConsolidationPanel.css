@@ -1,0 +1,227 @@
+.consolidation-panel {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 16px;
+  background: rgba(9, 16, 24, 0.82);
+  color: var(--color-text);
+}
+
+.consolidation-panel-header {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.consolidation-panel h2,
+.consolidation-card h3,
+.consolidation-block h4 {
+  margin: 0;
+  color: var(--color-heading);
+  overflow-wrap: anywhere;
+}
+
+.consolidation-panel h2 {
+  font-size: 1.05rem;
+  line-height: 1.16;
+}
+
+.consolidation-eyebrow {
+  margin: 0 0 5px;
+  color: var(--color-muted);
+  font-size: 0.7rem;
+  font-weight: 780;
+  text-transform: uppercase;
+}
+
+.consolidation-count,
+.consolidation-state {
+  flex: 0 0 auto;
+  color: var(--color-muted);
+  font-size: 0.72rem;
+  font-weight: 760;
+}
+
+.consolidation-count {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.consolidation-empty {
+  margin: 0;
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  padding: 14px;
+  color: var(--color-muted);
+}
+
+.consolidation-list,
+.consolidation-source-list,
+.consolidation-requirement-list {
+  margin: 0;
+  padding: 0;
+}
+
+.consolidation-list {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+}
+
+.consolidation-card {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.consolidation-card.state-applied {
+  border-color: rgba(74, 222, 128, 0.48);
+}
+
+.consolidation-card.state-parked {
+  border-color: rgba(251, 191, 36, 0.52);
+}
+
+.consolidation-card-heading,
+.consolidation-kind,
+.consolidation-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.consolidation-card-heading {
+  justify-content: space-between;
+}
+
+.consolidation-kind {
+  min-height: 26px;
+  border: 1px solid rgba(125, 211, 252, 0.36);
+  border-radius: 999px;
+  padding: 0 9px;
+  color: #7dd3fc;
+  font-size: 0.72rem;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.consolidation-kind.kind-split {
+  border-color: rgba(252, 211, 77, 0.4);
+  color: #fde68a;
+}
+
+.consolidation-card h3 {
+  font-size: 1rem;
+  line-height: 1.22;
+}
+
+.consolidation-rationale {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.consolidation-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.consolidation-block {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.consolidation-block h4 {
+  font-size: 0.74rem;
+  font-weight: 780;
+  text-transform: uppercase;
+}
+
+.consolidation-source-list,
+.consolidation-requirement-list {
+  display: grid;
+  gap: 8px;
+}
+
+.consolidation-source-list {
+  list-style: none;
+}
+
+.consolidation-source-list li,
+.consolidation-requirement-list li {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 7px;
+  padding: 9px;
+  background: rgba(5, 10, 14, 0.38);
+}
+
+.consolidation-source-list span {
+  color: #7dd3fc;
+  font-size: 0.66rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.consolidation-source-list strong,
+.consolidation-requirement-list strong {
+  color: var(--color-heading);
+  font-size: 0.84rem;
+  line-height: 1.22;
+  overflow-wrap: anywhere;
+}
+
+.consolidation-source-list small,
+.consolidation-requirement-list small {
+  color: var(--color-muted);
+  font-size: 0.72rem;
+  line-height: 1.36;
+  overflow-wrap: anywhere;
+}
+
+.consolidation-requirement-list {
+  padding-left: 18px;
+}
+
+.consolidation-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.consolidation-actions button {
+  min-height: 34px;
+}
+
+@media (max-width: 760px) {
+  .consolidation-panel-header,
+  .consolidation-card-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .consolidation-count,
+  .consolidation-state {
+    align-self: flex-start;
+  }
+
+  .consolidation-grid {
+    grid-template-columns: 1fr;
+  }
+}

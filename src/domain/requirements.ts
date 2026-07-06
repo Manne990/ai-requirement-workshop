@@ -136,6 +136,52 @@ export type RequirementBacklogDerivation = {
   linkedArtifactIds: string[];
 };
 
+export type RequirementLifecycleStatus = RequirementState;
+
+export type RequirementPanelHistoryEntry = {
+  id: string;
+  changedAt: string;
+  changedBy: string;
+  fromStatus?: RequirementLifecycleStatus;
+  toStatus: RequirementLifecycleStatus;
+  reason?: string;
+};
+
+export type RequirementPanelItem = {
+  id: string;
+  title: string;
+  statement: string;
+  status: RequirementLifecycleStatus;
+  version?: string;
+  owner?: string;
+  updatedAt?: string;
+  tags: string[];
+  sourceArtifactIds: string[];
+  sourceMessageIds: string[];
+  history: RequirementPanelHistoryEntry[];
+};
+
+export const requirementLifecycleOrder: RequirementLifecycleStatus[] = [
+  "candidate",
+  "approved",
+  "draft",
+  "baselined",
+  "rejected",
+  "superseded",
+];
+
+export const requirementLifecycleLabel: Record<
+  RequirementLifecycleStatus,
+  string
+> = {
+  draft: "Draft",
+  candidate: "Candidate",
+  approved: "Approved",
+  rejected: "Rejected",
+  superseded: "Superseded",
+  baselined: "Baselined",
+};
+
 export const requirementTransitions = {
   draft: ["candidate", "rejected", "superseded"],
   candidate: ["approved", "rejected", "superseded"],
@@ -161,6 +207,44 @@ function defaultCreateRationale(action: "created" | "merged" | "split") {
 
 export function createRequirement(input: RequirementCreateInput): Requirement {
   return createRequirementWithHistoryAction(input, "created");
+}
+
+export function selectRequirementPanelItems(
+  artifacts: WorkshopArtifact[],
+): RequirementPanelItem[] {
+  return artifacts
+    .filter((artifact) => artifact.type === "requirement")
+    .map((artifact) => ({
+      id: artifact.id,
+      title: artifact.title,
+      statement: artifact.content,
+      status: requirementStatusFromArtifact(artifact),
+      updatedAt: artifact.updatedAt,
+      owner: artifact.createdBy,
+      tags: artifact.tags,
+      sourceArtifactIds: artifact.source.artifactId
+        ? [artifact.source.artifactId]
+        : [],
+      sourceMessageIds: artifact.source.messageId
+        ? [artifact.source.messageId]
+        : [],
+      history: [],
+    }))
+    .sort(compareRequirementsForReview);
+}
+
+export function groupRequirementsByLifecycle(
+  requirements: RequirementPanelItem[],
+): Record<RequirementLifecycleStatus, RequirementPanelItem[]> {
+  return requirementLifecycleOrder.reduce(
+    (groups, status) => {
+      groups[status] = requirements
+        .filter((requirement) => requirement.status === status)
+        .sort(compareRequirementsForReview);
+      return groups;
+    },
+    {} as Record<RequirementLifecycleStatus, RequirementPanelItem[]>,
+  );
 }
 
 function createRequirementWithHistoryAction(
@@ -200,6 +284,52 @@ function createRequirementWithHistoryAction(
       }),
     ],
   };
+}
+
+function requirementStatusFromArtifact(
+  artifact: WorkshopArtifact,
+): RequirementLifecycleStatus {
+  const tags = new Set(artifact.tags.map((tag) => tag.toLowerCase()));
+
+  if (tags.has("baselined") || tags.has("baseline")) {
+    return "baselined";
+  }
+
+  if (tags.has("superseded") || tags.has("supersede")) {
+    return "superseded";
+  }
+
+  if (artifact.status === "accepted") {
+    return "approved";
+  }
+
+  if (artifact.status === "rejected") {
+    return "rejected";
+  }
+
+  if (
+    tags.has("candidate") ||
+    artifact.title.toLowerCase().includes("candidate")
+  ) {
+    return "candidate";
+  }
+
+  return "draft";
+}
+
+function compareRequirementsForReview(
+  left: RequirementPanelItem,
+  right: RequirementPanelItem,
+) {
+  const statusDifference =
+    requirementLifecycleOrder.indexOf(left.status) -
+    requirementLifecycleOrder.indexOf(right.status);
+
+  if (statusDifference !== 0) {
+    return statusDifference;
+  }
+
+  return (right.updatedAt ?? "").localeCompare(left.updatedAt ?? "");
 }
 
 export function createRequirementCandidateFromArtifact(

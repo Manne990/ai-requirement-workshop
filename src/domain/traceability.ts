@@ -112,6 +112,7 @@ export type TraceabilityCoverageExpectation = {
   targetKind: TraceabilityNodeKind;
   direction: "upstream" | "downstream";
   acceptedKinds: TraceabilityNodeKind[];
+  acceptedArtifactTypes?: ArtifactType[];
   description: string;
   statuses?: string[];
 };
@@ -131,21 +132,30 @@ export const defaultTraceabilityCoverageExpectations = [
     id: "requirement-source",
     targetKind: "requirement",
     direction: "upstream",
-    acceptedKinds: ["source-message", "source-attachment"],
+    acceptedKinds: ["source-message", "source-attachment", "artifact"],
+    acceptedArtifactTypes: ["source"],
     description: "source evidence",
   },
   {
     id: "requirement-test",
     targetKind: "requirement",
     direction: "downstream",
-    acceptedKinds: ["test"],
-    description: "verification test coverage",
+    acceptedKinds: ["test", "prototype"],
+    description: "validation test or prototype coverage",
+  },
+  {
+    id: "requirement-risk-review",
+    targetKind: "requirement",
+    direction: "downstream",
+    acceptedKinds: ["risk"],
+    description: "risk review",
   },
   {
     id: "risk-source",
     targetKind: "risk",
     direction: "upstream",
-    acceptedKinds: ["source-message", "source-attachment"],
+    acceptedKinds: ["source-message", "source-attachment", "artifact"],
+    acceptedArtifactTypes: ["source"],
     description: "source evidence",
   },
   {
@@ -248,7 +258,7 @@ export function buildTraceabilityGraph(
     ]);
   }
 
-  linkArtifactSources(session, nodesById, aliases, addLink);
+  linkArtifactSources(session, nodesById, aliases, addLink, warnings);
   linkAttachmentsToSourceArtifacts(
     session.attachments ?? [],
     session.artifacts,
@@ -256,14 +266,26 @@ export function buildTraceabilityGraph(
     aliases,
     addLink,
   );
-  linkWorkshopArtifactEdges(session.links, nodesById, aliases, addLink);
+  linkRequirementRiskReviews(session.artifacts, nodesById, aliases, addLink);
+  linkWorkshopArtifactEdges(
+    session.links,
+    nodesById,
+    aliases,
+    addLink,
+    warnings,
+  );
 
-  for (const workItem of input.workItems ?? []) {
+  const workItems = [
+    ...(input.workItems ?? []),
+    ...prototypeWorkItems(session.prototypes ?? [], warnings),
+  ];
+
+  for (const workItem of workItems) {
     const node = workItemNode(workItem);
     addNode(node, [workItem.id, `${workItem.kind}:${workItem.id}`]);
   }
 
-  for (const workItem of input.workItems ?? []) {
+  for (const workItem of workItems) {
     const nodeId = resolveReference(
       `${workItem.kind}:${workItem.id}`,
       nodesById,
@@ -443,6 +465,7 @@ function linkArtifactSources(
   nodesById: Map<string, TraceabilityNode>,
   aliases: Map<string, string>,
   addLink: AddTraceabilityLink,
+  warnings: string[],
 ) {
   for (const message of session.messages) {
     const messageNodeId = resolveReference(message.id, nodesById, aliases);
@@ -472,6 +495,10 @@ function linkArtifactSources(
       );
       if (sourceNodeId) {
         addLink(sourceNodeId, targetNodeId, "source-of", "captured as");
+      } else {
+        warnings.push(
+          `Skipped artifact provenance for ${artifact.type}:${artifact.id}: unresolved source message ${artifact.source.messageId}.`,
+        );
       }
     }
 
@@ -483,6 +510,10 @@ function linkArtifactSources(
       );
       if (sourceNodeId) {
         addLink(sourceNodeId, targetNodeId, "derived-from", "derived");
+      } else {
+        warnings.push(
+          `Skipped artifact provenance for ${artifact.type}:${artifact.id}: unresolved source artifact ${artifact.source.artifactId}.`,
+        );
       }
     }
   }
@@ -522,11 +553,44 @@ function linkAttachmentsToSourceArtifacts(
   }
 }
 
+function linkRequirementRiskReviews(
+  artifacts: WorkshopArtifact[],
+  nodesById: Map<string, TraceabilityNode>,
+  aliases: Map<string, string>,
+  addLink: AddTraceabilityLink,
+) {
+  const requirements = artifacts.filter(
+    (artifact) => artifact.type === "requirement",
+  );
+  const risks = artifacts.filter((artifact) => artifact.type === "risk");
+
+  for (const requirement of requirements) {
+    const requirementNodeId = resolveReference(
+      requirement.id,
+      nodesById,
+      aliases,
+    );
+    if (!requirementNodeId) {
+      continue;
+    }
+
+    for (const risk of risks) {
+      const riskNodeId = resolveReference(risk.id, nodesById, aliases);
+      if (!riskNodeId || !sharesTraceSource(requirement, risk)) {
+        continue;
+      }
+
+      addLink(requirementNodeId, riskNodeId, "relates-to", "risk review");
+    }
+  }
+}
+
 function linkWorkshopArtifactEdges(
   links: ArtifactLink[],
   nodesById: Map<string, TraceabilityNode>,
   aliases: Map<string, string>,
   addLink: AddTraceabilityLink,
+  warnings: string[],
 ) {
   for (const link of links) {
     const sourceNodeId = resolveReference(
@@ -542,8 +606,52 @@ function linkWorkshopArtifactEdges(
 
     if (sourceNodeId && targetNodeId) {
       addLink(sourceNodeId, targetNodeId, "artifact-link", link.label, link.id);
+    } else {
+      warnings.push(
+        `Skipped artifact link ${link.id}: unresolved artifact reference ${link.sourceArtifactId} -> ${link.targetArtifactId}.`,
+      );
     }
   }
+}
+
+function prototypeWorkItems(
+  prototypes: WorkshopSession["prototypes"],
+  warnings: string[],
+): TraceabilityWorkItem[] {
+  return prototypes.flatMap((prototype) => {
+    const version = prototype.versions.find(
+      (candidate) => candidate.version === prototype.currentVersion,
+    );
+    if (!version) {
+      warnings.push(
+        `Skipped prototype ${prototype.id}: unresolved current version ${prototype.currentVersion}.`,
+      );
+      return [];
+    }
+
+    return [
+      {
+        id: prototype.id,
+        kind: "prototype",
+        title: `${prototype.title} v${version.version}`,
+        summary: version.changeSummary,
+        status: prototype.status,
+        sourceRefs: version.requirementRefs.flatMap((requirement) =>
+          requirement.sourceMessageId
+            ? [{ messageId: requirement.sourceMessageId }]
+            : [],
+        ),
+        covers: version.requirementRefs.map(
+          (requirement) => requirement.requirementId,
+        ),
+        tags: [
+          "prototype",
+          `model:${version.sourceModel.model}`,
+          `prompt:${version.sourceModel.promptVersion}`,
+        ],
+      },
+    ];
+  });
 }
 
 function linkWorkItemSources(
@@ -719,7 +827,7 @@ function coverageGapForNode(
       : getDownstreamImpact(graph, node.id);
   const acceptedKinds = new Set(expectation.acceptedKinds);
   const covered = impact.nodes.some((impactNode) =>
-    acceptedKinds.has(impactNode.kind),
+    satisfiesCoverageExpectation(impactNode, acceptedKinds, expectation),
   );
 
   if (covered) {
@@ -737,6 +845,38 @@ function coverageGapForNode(
       detail: `${node.label} is missing ${expectation.description}.`,
     },
   ];
+}
+
+function satisfiesCoverageExpectation(
+  node: TraceabilityNode,
+  acceptedKinds: Set<TraceabilityNodeKind>,
+  expectation: TraceabilityCoverageExpectation,
+) {
+  if (!acceptedKinds.has(node.kind)) {
+    return false;
+  }
+
+  if (
+    node.kind === "artifact" &&
+    expectation.acceptedArtifactTypes &&
+    (node.artifactType === undefined ||
+      !expectation.acceptedArtifactTypes.includes(node.artifactType))
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function sharesTraceSource(left: WorkshopArtifact, right: WorkshopArtifact) {
+  return (
+    (left.source.messageId !== undefined &&
+      left.source.messageId === right.source.messageId) ||
+    (left.source.artifactId !== undefined &&
+      left.source.artifactId === right.source.artifactId) ||
+    left.source.artifactId === right.id ||
+    right.source.artifactId === left.id
+  );
 }
 
 function graphIndexes(graph: TraceabilityGraph) {

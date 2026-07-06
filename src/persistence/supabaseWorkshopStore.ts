@@ -25,87 +25,123 @@ type WorkshopRow = {
   seen_insight_ids_by_participant?: unknown;
 };
 
+type OrganizationRole = "owner" | "facilitator" | "participant" | "viewer";
+
+type MembershipRow = {
+  organization_id?: string | null;
+  role?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+};
+
+type OrganizationAccess = {
+  id: string;
+  role: OrganizationRole;
+  user: User;
+};
+
+const writableOrganizationRoles = new Set<OrganizationRole>([
+  "owner",
+  "facilitator",
+]);
+
 export function createSupabaseWorkshopRecordStore({
   env = import.meta.env,
   supabase,
   now = () => new Date().toISOString(),
 }: SupabaseWorkshopStoreOptions = {}): WorkshopRecordStore {
   const clientLoader = createSupabaseClientLoader(env, supabase);
-  let organizationIdPromise: Promise<string> | null = null;
+  let organizationAccessPromise: Promise<OrganizationAccess> | null = null;
 
-  const organizationId = async () => {
-    organizationIdPromise ??= ensureWritableOrganization(
+  const organizationAccess = async () => {
+    organizationAccessPromise ??= ensureOrganizationAccess(
       await clientLoader(),
       env,
       now,
     );
-    return organizationIdPromise;
+    return organizationAccessPromise;
   };
 
   return {
     async listSummaries() {
-      const client = await clientLoader();
-      const orgId = await organizationId();
-      const { data, error } = await client
-        .from("workshops")
-        .select(
-          "id, record_key, title, created_at, updated_at, session_snapshot, seen_insight_ids_by_participant",
-        )
-        .eq("organization_id", orgId)
-        .order("updated_at", { ascending: false });
+      try {
+        const client = await clientLoader();
+        const { id: orgId } = await organizationAccess();
+        const { data, error } = await client
+          .from("workshops")
+          .select(
+            "id, record_key, title, created_at, updated_at, session_snapshot, seen_insight_ids_by_participant",
+          )
+          .eq("organization_id", orgId)
+          .order("updated_at", { ascending: false });
 
-      if (error) {
-        throw new Error(error.message);
+        if (error) {
+          throwSupabaseError(error);
+        }
+
+        return (data ?? []).map(rowToWorkshopRecord).map(toWorkshopSummary);
+      } catch (error) {
+        throwOperationError("Unable to list Supabase workshops", error);
       }
-
-      return (data ?? []).map(rowToWorkshopRecord).map(toWorkshopSummary);
     },
 
     async loadRecord(id) {
-      const client = await clientLoader();
-      const orgId = await organizationId();
-      const { data, error } = await client
-        .from("workshops")
-        .select(
-          "id, record_key, title, created_at, updated_at, session_snapshot, seen_insight_ids_by_participant",
-        )
-        .eq("organization_id", orgId)
-        .eq("record_key", id)
-        .limit(1);
+      try {
+        const client = await clientLoader();
+        const { id: orgId } = await organizationAccess();
+        const { data, error } = await client
+          .from("workshops")
+          .select(
+            "id, record_key, title, created_at, updated_at, session_snapshot, seen_insight_ids_by_participant",
+          )
+          .eq("organization_id", orgId)
+          .eq("record_key", id)
+          .limit(1);
 
-      if (error) {
-        throw new Error(error.message);
+        if (error) {
+          throwSupabaseError(error);
+        }
+
+        const row = data?.[0];
+        return row ? rowToWorkshopRecord(row) : null;
+      } catch (error) {
+        throwOperationError(`Unable to load Supabase workshop "${id}"`, error);
       }
-
-      const row = data?.[0];
-      return row ? rowToWorkshopRecord(row) : null;
     },
 
     async saveRecord(record) {
-      const client = await clientLoader();
-      const orgId = await organizationId();
-      const user = await requireCurrentUser(client);
+      try {
+        const client = await clientLoader();
+        const access = await organizationAccess();
+        assertCanWriteWorkshops(access);
 
-      const { error } = await client
-        .from("workshops")
-        .upsert(
-          {
-            organization_id: orgId,
-            record_key: record.id,
-            local_import_id: record.id,
-            title: record.title,
-            status: "active",
-            created_by: user.id,
-            updated_at: record.updatedAt,
-            session_snapshot: record.session,
-            seen_insight_ids_by_participant: record.seenInsightIdsByParticipant,
-          },
-          { onConflict: "organization_id,record_key" },
-        )
-        .select("id");
+        const { error } = await client
+          .from("workshops")
+          .upsert(
+            {
+              organization_id: access.id,
+              record_key: record.id,
+              local_import_id: record.id,
+              title: record.title,
+              status: "active",
+              created_by: access.user.id,
+              updated_at: record.updatedAt,
+              session_snapshot: record.session,
+              seen_insight_ids_by_participant:
+                record.seenInsightIdsByParticipant,
+            },
+            { onConflict: "organization_id,record_key" },
+          )
+          .select("id");
 
-      if (error) {
-        throw new Error(error.message);
+        if (error) {
+          throwSupabaseError(error);
+        }
+      } catch (error) {
+        throwOperationError(
+          `Unable to save Supabase workshop "${record.id}"`,
+          error,
+        );
       }
     },
   };
@@ -144,32 +180,41 @@ function createSupabaseClientLoader(
   };
 }
 
-async function ensureWritableOrganization(
+async function ensureOrganizationAccess(
   client: SupabaseClient,
   env: BrowserEnv,
   now: () => string,
-) {
-  const configuredOrgId = env.VITE_SUPABASE_ORGANIZATION_ID?.trim();
-  if (configuredOrgId) {
-    return configuredOrgId;
-  }
-
+): Promise<OrganizationAccess> {
   const user = await requireCurrentUser(client);
   await ensureProfile(client, user);
 
-  const { data: memberships, error: membershipError } = await client
-    .from("memberships")
-    .select("organization_id, role")
-    .eq("user_id", user.id)
-    .limit(1);
+  const configuredOrgId = env.VITE_SUPABASE_ORGANIZATION_ID?.trim();
+  const memberships = await loadActiveMemberships(client, user.id);
 
-  if (membershipError) {
-    throw new Error(membershipError.message);
+  if (configuredOrgId) {
+    const membership = memberships.find(
+      (candidate) => candidate.organization_id === configuredOrgId,
+    );
+    if (!membership) {
+      throw new Error(
+        `Current user is not an active member of configured Supabase organization "${configuredOrgId}". Ask an organization owner to add this user, or remove VITE_SUPABASE_ORGANIZATION_ID to let the app create a personal organization.`,
+      );
+    }
+
+    return {
+      id: configuredOrgId,
+      role: membership.role,
+      user,
+    };
   }
 
-  const existingOrgId = memberships?.[0]?.organization_id;
-  if (typeof existingOrgId === "string" && existingOrgId) {
-    return existingOrgId;
+  const existingMembership = chooseMembership(memberships);
+  if (existingMembership) {
+    return {
+      id: existingMembership.organization_id,
+      role: existingMembership.role,
+      user,
+    };
   }
 
   const slug = `org-${user.id.slice(0, 8).toLowerCase()}`;
@@ -186,7 +231,7 @@ async function ensureWritableOrganization(
     .single();
 
   if (createOrgError) {
-    throw new Error(createOrgError.message);
+    throwSupabaseError(createOrgError);
   }
 
   const orgId = createdOrg?.id;
@@ -203,10 +248,90 @@ async function ensureWritableOrganization(
     });
 
   if (membershipInsertError) {
-    throw new Error(membershipInsertError.message);
+    throwSupabaseError(membershipInsertError);
   }
 
-  return orgId;
+  return {
+    id: orgId,
+    role: "owner",
+    user,
+  };
+}
+
+async function loadActiveMemberships(client: SupabaseClient, userId: string) {
+  const { data, error } = await client
+    .from("memberships")
+    .select("organization_id, role, status, created_at")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throwSupabaseError(error);
+  }
+
+  return Array.isArray(data)
+    ? data.flatMap((row) => normalizeMembership(row))
+    : [];
+}
+
+function normalizeMembership(row: MembershipRow) {
+  if (
+    typeof row.organization_id !== "string" ||
+    !row.organization_id ||
+    !isOrganizationRole(row.role) ||
+    row.status !== "active"
+  ) {
+    return [];
+  }
+
+  return [
+    {
+      organization_id: row.organization_id,
+      role: row.role,
+      created_at: stringOr(row.created_at),
+    },
+  ];
+}
+
+function chooseMembership(
+  memberships: ReturnType<typeof normalizeMembership>[number][],
+) {
+  return [...memberships].sort(compareMemberships)[0] ?? null;
+}
+
+function compareMemberships(
+  left: ReturnType<typeof normalizeMembership>[number],
+  right: ReturnType<typeof normalizeMembership>[number],
+) {
+  return (
+    rolePriority(left.role) - rolePriority(right.role) ||
+    left.created_at.localeCompare(right.created_at) ||
+    left.organization_id.localeCompare(right.organization_id)
+  );
+}
+
+function rolePriority(role: OrganizationRole) {
+  return writableOrganizationRoles.has(role) ? 0 : 1;
+}
+
+function assertCanWriteWorkshops(access: OrganizationAccess) {
+  if (writableOrganizationRoles.has(access.role)) {
+    return;
+  }
+
+  throw new Error(
+    `Current user has "${access.role}" access to organization "${access.id}", but saving workshop records requires owner or facilitator access.`,
+  );
+}
+
+function isOrganizationRole(value: unknown): value is OrganizationRole {
+  return (
+    value === "owner" ||
+    value === "facilitator" ||
+    value === "participant" ||
+    value === "viewer"
+  );
 }
 
 async function ensureProfile(client: SupabaseClient, user: User) {
@@ -217,14 +342,14 @@ async function ensureProfile(client: SupabaseClient, user: User) {
   });
 
   if (error) {
-    throw new Error(error.message);
+    throwSupabaseError(error);
   }
 }
 
 async function requireCurrentUser(client: SupabaseClient) {
   const { data, error } = await client.auth.getUser();
   if (error) {
-    throw new Error(error.message);
+    throwSupabaseError(error);
   }
 
   if (!data.user) {
@@ -320,4 +445,33 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function stringOr(value: unknown, fallback = "") {
   return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function throwSupabaseError(error: {
+  message?: string;
+  code?: string;
+  details?: string;
+  hint?: string;
+}): never {
+  const parts = [error.message || "Supabase request failed."];
+  if (error.code) {
+    parts.push(`Code: ${error.code}.`);
+  }
+  if (error.details) {
+    parts.push(`Details: ${error.details}`);
+  }
+  if (error.hint) {
+    parts.push(`Hint: ${error.hint}`);
+  }
+
+  throw new Error(parts.join(" "));
+}
+
+function throwOperationError(operation: string, error: unknown): never {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.startsWith(`${operation}:`)) {
+    throw error;
+  }
+
+  throw new Error(`${operation}: ${message}`);
 }

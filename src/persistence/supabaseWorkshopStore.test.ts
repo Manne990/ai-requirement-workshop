@@ -11,6 +11,13 @@ import {
 } from "./supabaseWorkshopStore";
 
 type TableName = "profiles" | "organizations" | "memberships" | "workshops";
+type QueryOperation = "select" | "insert" | "upsert";
+type QueryError = {
+  message: string;
+  code?: string;
+  details?: string;
+  hint?: string;
+};
 
 type FakeState = {
   user: User | null;
@@ -18,6 +25,15 @@ type FakeState = {
   memberships: Record<string, Record<string, unknown>>;
   workshops: Record<string, Record<string, unknown>>;
   operations: { table: TableName; operation: string; payload: unknown }[];
+  queryErrors: Partial<
+    Record<TableName, Partial<Record<QueryOperation, QueryError>>>
+  >;
+};
+
+type FakeSupabaseOptions = {
+  user?: User | null;
+  memberships?: Record<string, unknown>[];
+  queryErrors?: FakeState["queryErrors"];
 };
 
 describe("supabaseWorkshopStore", () => {
@@ -42,15 +58,7 @@ describe("supabaseWorkshopStore", () => {
       supabase: fake.client,
       now: () => "2026-07-06T20:00:00.000Z",
     });
-    const session = submitHumanMessage(
-      createInitialWorkshopSession(
-        "2026-07-06T19:58:00.000Z",
-        "workshop-local-key",
-      ),
-      "Vi behöver bygga en kravworkshop för SOS Alarm.",
-      "2026-07-06T19:59:00.000Z",
-    );
-    const record = createWorkshopRecord(session, {
+    const record = createTestRecord("workshop-local-key", {
       "agent-quality": ["artifact-1"],
     });
 
@@ -75,18 +83,103 @@ describe("supabaseWorkshopStore", () => {
     });
   });
 
+  it("uses a configured organization id when the user is already a member", async () => {
+    const fake = createFakeSupabase({
+      memberships: [
+        createMembership({
+          organization_id: "org-configured",
+          role: "owner",
+          created_at: "2026-07-06T19:00:00.000Z",
+        }),
+      ],
+    });
+    const store = createSupabaseWorkshopRecordStore({
+      env: { VITE_SUPABASE_ORGANIZATION_ID: " org-configured " },
+      supabase: fake.client,
+    });
+    const record = createTestRecord("configured-workshop");
+
+    await store.saveRecord(record);
+
+    expect(fake.state.operations).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "organizations",
+          operation: "insert",
+        }),
+        expect.objectContaining({ table: "memberships", operation: "insert" }),
+      ]),
+    );
+    expect(fake.state.workshops["configured-workshop"]).toMatchObject({
+      organization_id: "org-configured",
+      record_key: "configured-workshop",
+    });
+  });
+
+  it("reuses an existing writable membership before creating an organization", async () => {
+    const fake = createFakeSupabase({
+      memberships: [
+        createMembership({
+          organization_id: "org-viewer",
+          role: "viewer",
+          created_at: "2026-07-06T18:00:00.000Z",
+        }),
+        createMembership({
+          organization_id: "org-facilitator",
+          role: "facilitator",
+          created_at: "2026-07-06T19:00:00.000Z",
+        }),
+      ],
+    });
+    const store = createSupabaseWorkshopRecordStore({ supabase: fake.client });
+    const record = createTestRecord("existing-membership-workshop");
+
+    await store.saveRecord(record);
+
+    expect(fake.state.operations).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "organizations",
+          operation: "insert",
+        }),
+      ]),
+    );
+    expect(fake.state.workshops["existing-membership-workshop"]).toMatchObject({
+      organization_id: "org-facilitator",
+      record_key: "existing-membership-workshop",
+    });
+  });
+
+  it("explains when a configured organization does not include the user", async () => {
+    const fake = createFakeSupabase({
+      memberships: [
+        createMembership({
+          organization_id: "org-other",
+          role: "owner",
+          created_at: "2026-07-06T19:00:00.000Z",
+        }),
+      ],
+    });
+    const store = createSupabaseWorkshopRecordStore({
+      env: { VITE_SUPABASE_ORGANIZATION_ID: "org-configured" },
+      supabase: fake.client,
+    });
+
+    await expect(
+      store.saveRecord(createTestRecord("missing-configured-org")),
+    ).rejects.toThrow(
+      'Unable to save Supabase workshop "missing-configured-org": Current user is not an active member of configured Supabase organization "org-configured".',
+    );
+  });
+
   it("lists and loads server-backed workshop snapshots", async () => {
     const fake = createFakeSupabase();
     const store = createSupabaseWorkshopRecordStore({ supabase: fake.client });
-    const session = submitHumanMessage(
-      createInitialWorkshopSession(
-        "2026-07-06T19:58:00.000Z",
-        "workshop-server-key",
-      ),
+    const record = createTestRecord(
+      "workshop-server-key",
+      {},
       "Skapa en dashboard för kunders larm.",
-      "2026-07-06T19:59:00.000Z",
     );
-    const record = createWorkshopRecord(session);
 
     await store.saveRecord(record);
 
@@ -110,19 +203,100 @@ describe("supabaseWorkshopStore", () => {
       }),
     });
   });
+
+  it("adds operation context to Supabase list, load, and save errors", async () => {
+    const listStore = createSupabaseWorkshopRecordStore({
+      supabase: createFakeSupabase({
+        queryErrors: {
+          workshops: {
+            select: {
+              message: "permission denied for table workshops",
+              code: "42501",
+            },
+          },
+        },
+      }).client,
+    });
+    await expect(listStore.listSummaries()).rejects.toThrow(
+      "Unable to list Supabase workshops: permission denied for table workshops Code: 42501.",
+    );
+
+    const loadStore = createSupabaseWorkshopRecordStore({
+      supabase: createFakeSupabase({
+        queryErrors: {
+          workshops: {
+            select: { message: "network request failed" },
+          },
+        },
+      }).client,
+    });
+    await expect(loadStore.loadRecord("workshop-missing")).rejects.toThrow(
+      'Unable to load Supabase workshop "workshop-missing": network request failed',
+    );
+
+    const saveStore = createSupabaseWorkshopRecordStore({
+      supabase: createFakeSupabase({
+        queryErrors: {
+          workshops: {
+            upsert: { message: "new row violates row-level security policy" },
+          },
+        },
+      }).client,
+    });
+    await expect(
+      saveStore.saveRecord(createTestRecord("workshop-save-error")),
+    ).rejects.toThrow(
+      'Unable to save Supabase workshop "workshop-save-error": new row violates row-level security policy',
+    );
+  });
 });
 
-function createFakeSupabase() {
+function createTestRecord(
+  id: string,
+  seenInsightIdsByParticipant = {},
+  body = "Vi behöver bygga en kravworkshop för SOS Alarm.",
+) {
+  const session = submitHumanMessage(
+    createInitialWorkshopSession("2026-07-06T19:58:00.000Z", id),
+    body,
+    "2026-07-06T19:59:00.000Z",
+  );
+  return createWorkshopRecord(session, seenInsightIdsByParticipant);
+}
+
+function createMembership(
+  overrides: Partial<Record<string, unknown>>,
+): Record<string, unknown> {
+  return {
+    organization_id: "org-1",
+    user_id: "user-1",
+    role: "owner",
+    status: "active",
+    created_at: "2026-07-06T18:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function createFakeSupabase(options: FakeSupabaseOptions = {}) {
   const state: FakeState = {
-    user: {
-      id: "user-1",
-      email: "owner@example.com",
-      user_metadata: { display_name: "Workshop Owner" },
-    } as unknown as User,
+    user:
+      options.user === undefined
+        ? ({
+            id: "user-1",
+            email: "owner@example.com",
+            user_metadata: { display_name: "Workshop Owner" },
+          } as unknown as User)
+        : options.user,
     organizations: {},
-    memberships: {},
+    memberships: Object.fromEntries(
+      (options.memberships ?? []).map((membership, index) => [
+        `membership-${index + 1}`,
+        { id: `membership-${index + 1}`, ...membership },
+      ]),
+    ),
     workshops: {},
     operations: [],
+    queryErrors: options.queryErrors ?? {},
   };
   const client = {
     auth: {
@@ -136,6 +310,7 @@ function createFakeSupabase() {
 
 class FakeQuery {
   private filters: { column: string; value: unknown }[] = [];
+  private orders: { column: string; ascending: boolean }[] = [];
   private limitCount: number | null = null;
   private operation: "select" | "insert" | "upsert" = "select";
   private payload: Record<string, unknown> | null = null;
@@ -156,7 +331,8 @@ class FakeQuery {
     return this;
   }
 
-  order() {
+  order(column: string, options?: { ascending?: boolean }) {
+    this.orders.push({ column, ascending: options?.ascending ?? true });
     return this;
   }
 
@@ -204,6 +380,11 @@ class FakeQuery {
   }
 
   private resolve(): QueryResult {
+    const queryError = this.state.queryErrors[this.table]?.[this.operation];
+    if (queryError) {
+      return { data: null, error: queryError };
+    }
+
     if (this.operation === "insert") {
       return this.applyInsert();
     }
@@ -240,22 +421,22 @@ class FakeQuery {
     }
 
     if (this.table === "profiles") {
-      this.state.operations.push({
-        table: "profiles",
-        operation: "profile-upserted",
-        payload: this.payload,
-      });
       return { data: [this.payload], error: null };
     }
 
     if (this.table === "workshops") {
       const recordKey = String(this.payload.record_key);
+      const existing = this.state.workshops[recordKey];
+      const rowId =
+        typeof existing?.id === "string"
+          ? existing.id
+          : `workshop-row-${Object.keys(this.state.workshops).length + 1}`;
       this.state.workshops[recordKey] = {
-        id: "workshop-row-1",
-        created_at: "2026-07-06T19:58:00.000Z",
+        id: rowId,
+        created_at: existing?.created_at ?? "2026-07-06T19:58:00.000Z",
         ...this.payload,
       };
-      return { data: [{ id: "workshop-row-1" }], error: null };
+      return { data: [{ id: rowId }], error: null };
     }
 
     return { data: [this.payload], error: null };
@@ -273,11 +454,21 @@ class FakeQuery {
       rows = rows.filter((row) => row[filter.column] === filter.value);
     }
 
+    for (const order of [...this.orders].reverse()) {
+      rows = [...rows].sort((left, right) => {
+        const leftValue = String(left[order.column] ?? "");
+        const rightValue = String(right[order.column] ?? "");
+        return order.ascending
+          ? leftValue.localeCompare(rightValue)
+          : rightValue.localeCompare(leftValue);
+      });
+    }
+
     return this.limitCount === null ? rows : rows.slice(0, this.limitCount);
   }
 }
 
 type QueryResult = {
   data: unknown;
-  error: { message: string } | null;
+  error: QueryError | null;
 };

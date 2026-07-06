@@ -24,6 +24,24 @@ The application code includes a Supabase Realtime adapter boundary in
 presence snapshots, local in-memory fallback for tests, and stale artifact-status
 conflict detection. It does not require service-role keys or committed secrets.
 
+## Workshop Snapshot Runtime
+
+`src/persistence/supabaseWorkshopStore.ts` writes resumable workshop snapshots
+through the browser Supabase client, protected by the membership-based RLS
+policies in these migrations.
+
+- Set `VITE_SUPABASE_ORGANIZATION_ID` only when the signed-in user already has
+  an active membership in that organization. The adapter will fail early with a
+  membership-specific error instead of creating a parallel personal
+  organization.
+- Without a configured organization id, the adapter reuses an existing active
+  membership before creating a personal organization. Owner and facilitator
+  memberships are preferred because workshop snapshot saves require write
+  access.
+- List, load, and save failures are wrapped with operation context so RLS,
+  network, or malformed-row issues are diagnosable from the client error
+  message.
+
 ## Verification
 
 Current CI runs:

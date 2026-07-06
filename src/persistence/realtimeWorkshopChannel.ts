@@ -1,5 +1,6 @@
 import {
   applyPresenceEvent,
+  compareCollaborationEvents,
   createPresenceEvent,
   createPresenceState,
   listPresenceSessions,
@@ -42,6 +43,10 @@ export type LocalRealtimeWorkshopChannelOptions = {
 
 type LocalRealtimeWorkshopChannel = RealtimeWorkshopChannel & {
   eventListeners: Set<(event: WorkshopCollaborationEvent) => void>;
+  deliveredEventIdsByListener: Map<
+    (event: WorkshopCollaborationEvent) => void,
+    Set<string>
+  >;
   presenceListeners: Set<(sessions: WorkshopPresenceSession[]) => void>;
 };
 
@@ -71,18 +76,26 @@ export function createLocalRealtimeWorkshopChannel({
     workshopId,
     clientSessionId,
     eventListeners: new Set(),
+    deliveredEventIdsByListener: new Map(),
     presenceListeners: new Set(),
 
     subscribeToEvents(listener) {
       channel.eventListeners.add(listener);
-      return () => channel.eventListeners.delete(listener);
+      channel.deliveredEventIdsByListener.set(listener, new Set());
+      deliverUndeliveredEvents(channel, hub, listener);
+      return () => {
+        channel.eventListeners.delete(listener);
+        channel.deliveredEventIdsByListener.delete(listener);
+      };
     },
 
     async publishEvent(event) {
-      hub.eventLog = [...hub.eventLog, cloneJson(event)].sort(compareEvents);
+      hub.eventLog = [...hub.eventLog, cloneJson(event)].sort(
+        compareCollaborationEvents,
+      );
       for (const candidate of hub.channels) {
         for (const listener of candidate.eventListeners) {
-          listener(cloneJson(event));
+          deliverUndeliveredEvents(candidate, hub, listener);
         }
       }
     },
@@ -138,6 +151,7 @@ export function createLocalRealtimeWorkshopChannel({
       await channel.untrackPresence(clientSessionId);
       hub.channels.delete(channel);
       channel.eventListeners.clear();
+      channel.deliveredEventIdsByListener.clear();
       channel.presenceListeners.clear();
     },
   };
@@ -272,6 +286,25 @@ function broadcastPresence(hub: LocalRealtimeWorkshopHub) {
   }
 }
 
+function deliverUndeliveredEvents(
+  channel: LocalRealtimeWorkshopChannel,
+  hub: LocalRealtimeWorkshopHub,
+  listener: (event: WorkshopCollaborationEvent) => void,
+) {
+  const delivered = channel.deliveredEventIdsByListener.get(listener);
+  if (!delivered) {
+    return;
+  }
+
+  for (const event of hub.eventLog) {
+    if (delivered.has(event.id)) {
+      continue;
+    }
+    delivered.add(event.id);
+    listener(cloneJson(event));
+  }
+}
+
 function readSupabaseBroadcastEvent(
   payload: unknown,
 ): WorkshopCollaborationEvent | null {
@@ -320,18 +353,6 @@ function isPresenceSession(value: unknown): value is WorkshopPresenceSession {
     typeof value.status === "string" &&
     typeof value.connectedAt === "string" &&
     typeof value.lastSeenAt === "string"
-  );
-}
-
-function compareEvents(
-  left: WorkshopCollaborationEvent,
-  right: WorkshopCollaborationEvent,
-) {
-  return (
-    left.occurredAt.localeCompare(right.occurredAt) ||
-    left.clientId.localeCompare(right.clientId) ||
-    left.sequence - right.sequence ||
-    left.id.localeCompare(right.id)
   );
 }
 

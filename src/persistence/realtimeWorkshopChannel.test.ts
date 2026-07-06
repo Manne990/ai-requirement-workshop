@@ -68,6 +68,78 @@ describe("realtimeWorkshopChannel", () => {
     await second.close();
   });
 
+  it("proves two local sessions get deterministic presence and event catch-up", async () => {
+    const hub = createLocalRealtimeWorkshopHub(workshopId);
+    const first = createLocalRealtimeWorkshopChannel({
+      workshopId,
+      clientId: "client-a",
+      clientSessionId: "session-a",
+      hub,
+    });
+    const second = createLocalRealtimeWorkshopChannel({
+      workshopId,
+      clientId: "client-b",
+      clientSessionId: "session-b",
+      hub,
+    });
+    const firstPresenceSnapshots: string[][] = [];
+    const secondPresenceSnapshots: string[][] = [];
+
+    first.subscribeToPresence((sessions) =>
+      firstPresenceSnapshots.push(sessions.map((session) => session.sessionId)),
+    );
+    second.subscribeToPresence((sessions) =>
+      secondPresenceSnapshots.push(
+        sessions.map((session) => session.sessionId),
+      ),
+    );
+
+    await first.trackPresence(
+      presence("session-a", "Ada", "2026-07-06T10:02:01.000Z"),
+    );
+    await second.trackPresence(
+      presence("session-b", "Grace", "2026-07-06T10:02:02.000Z"),
+    );
+    await first.untrackPresence();
+
+    expect(firstPresenceSnapshots).toEqual([
+      [],
+      ["session-a"],
+      ["session-a", "session-b"],
+      ["session-b"],
+    ]);
+    expect(secondPresenceSnapshots).toEqual(firstPresenceSnapshots);
+    expect(
+      first.getPresenceSnapshot().map((session) => session.sessionId),
+    ).toEqual(["session-b"]);
+
+    const later = eventFor("message-later", "2026-07-06T10:03:02.000Z", {
+      clientId: "client-b",
+      clientSessionId: "session-b",
+      sequence: 1,
+    });
+    const earlier = eventFor("message-earlier", "2026-07-06T10:03:01.000Z", {
+      clientId: "client-a",
+      clientSessionId: "session-a",
+      sequence: 1,
+    });
+
+    await second.publishEvent(later);
+    await first.publishEvent(earlier);
+
+    const replayed: WorkshopCollaborationEvent[] = [];
+    second.subscribeToEvents((event) => replayed.push(event));
+
+    expect(messageIds(hub.eventLog)).toEqual([
+      "message-earlier",
+      "message-later",
+    ]);
+    expect(messageIds(replayed)).toEqual(["message-earlier", "message-later"]);
+
+    await first.close();
+    await second.close();
+  });
+
   it("wraps Supabase Realtime broadcast and presence without secrets", async () => {
     const fakeChannel = createFakeSupabaseChannel();
     const supabase = {
@@ -186,13 +258,21 @@ function createFakeSupabaseChannel(): FakeSupabaseChannel {
   };
 }
 
-function eventFor(id: string, occurredAt: string): WorkshopCollaborationEvent {
+function eventFor(
+  id: string,
+  occurredAt: string,
+  options: {
+    clientId?: string;
+    clientSessionId?: string;
+    sequence?: number;
+  } = {},
+): WorkshopCollaborationEvent {
   return createCollaborationEvent({
     type: "message.added",
     workshopId,
-    clientId: "client-a",
-    clientSessionId: "session-a",
-    sequence: 1,
+    clientId: options.clientId ?? "client-a",
+    clientSessionId: options.clientSessionId ?? "session-a",
+    sequence: options.sequence ?? 1,
     occurredAt,
     actor,
     payload: {
@@ -206,6 +286,12 @@ function eventFor(id: string, occurredAt: string): WorkshopCollaborationEvent {
       },
     },
   });
+}
+
+function messageIds(events: WorkshopCollaborationEvent[]): string[] {
+  return events.map((event) =>
+    event.type === "message.added" ? event.payload.message.id : event.id,
+  );
 }
 
 function presence(

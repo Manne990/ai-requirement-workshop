@@ -249,6 +249,19 @@ export function applyCollaborationEvent(
   }
 }
 
+export function compareCollaborationEvents(
+  left: WorkshopCollaborationEvent,
+  right: WorkshopCollaborationEvent,
+) {
+  return (
+    left.occurredAt.localeCompare(right.occurredAt) ||
+    left.clientId.localeCompare(right.clientId) ||
+    left.clientSessionId.localeCompare(right.clientSessionId) ||
+    left.sequence - right.sequence ||
+    left.id.localeCompare(right.id)
+  );
+}
+
 export function createPresenceState(workshopId: string): WorkshopPresenceState {
   return {
     workshopId,

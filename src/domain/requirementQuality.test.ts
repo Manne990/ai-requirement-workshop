@@ -29,6 +29,41 @@ describe("requirement quality", () => {
       findings.find((finding) => finding.kind === "missing-acceptance-criteria")
         ?.severity,
     ).toBe("blocker");
+    expect(
+      findings.find((finding) => finding.kind === "ambiguity")?.diagnostics,
+    ).toEqual([
+      expect.objectContaining({
+        code: "quality.ambiguity.vague-term",
+        evidence: [expect.stringContaining("easy to use")],
+      }),
+    ]);
+  });
+
+  it("flags missing actor, action, and outcome as deterministic testability diagnostics", () => {
+    const findings = evaluateRequirementQuality(
+      [
+        requirement({
+          title: "Support portal",
+          content: "A better portal.",
+        }),
+      ],
+      { language: "en" },
+    );
+
+    const testability = findings.find(
+      (finding) => finding.kind === "missing-testability-signal",
+    );
+
+    expect(testability?.detail).toBe(
+      "The requirement is missing actor, action, outcome.",
+    );
+    expect(
+      testability?.diagnostics.map((diagnostic) => diagnostic.code),
+    ).toEqual([
+      "quality.testability.missing-actor",
+      "quality.testability.missing-action",
+      "quality.testability.missing-outcome",
+    ]);
   });
 
   it("detects deterministic conflicts between related requirements", () => {
@@ -54,6 +89,81 @@ describe("requirement quality", () => {
     expect(conflict?.severity).toBe("blocker");
     expect(conflict?.artifactId).toBe("artifact-requirement-002");
     expect(conflict?.relatedArtifactIds).toEqual(["artifact-requirement-001"]);
+    expect(conflict?.diagnostics[0]?.code).toBe("quality.conflict.visibility");
+  });
+
+  it("surfaces likely duplicate requirements for human review", () => {
+    const findings = evaluateRequirementQuality(
+      [
+        requirement({
+          id: "artifact-requirement-001",
+          title: "Send case notification",
+          content:
+            "The support team should send a case notification to the customer when the case is updated.",
+        }),
+        requirement({
+          id: "artifact-requirement-002",
+          title: "Send customer case notification",
+          content:
+            "The support team should send a customer case notification when the case is updated.",
+        }),
+      ],
+      { language: "en", focusArtifactIds: ["artifact-requirement-002"] },
+    );
+
+    const duplicate = findings.find((finding) => finding.kind === "duplicate");
+
+    expect(duplicate?.severity).toBe("warning");
+    expect(duplicate?.artifactId).toBe("artifact-requirement-002");
+    expect(duplicate?.relatedArtifactIds).toEqual(["artifact-requirement-001"]);
+    expect(duplicate?.diagnostics[0]?.code).toBe(
+      "quality.duplicate.high-overlap",
+    );
+  });
+
+  it("checks accepted requirements and ignores rejected requirements", () => {
+    const findings = evaluateRequirementQuality(
+      [
+        requirement({
+          id: "artifact-requirement-accepted",
+          status: "accepted",
+          content: "The workflow should be simple.",
+        }),
+        requirement({
+          id: "artifact-requirement-rejected",
+          status: "rejected",
+          content: "The workflow should be simple.",
+        }),
+      ],
+      { language: "en" },
+    );
+
+    expect(
+      findings.some(
+        (finding) => finding.artifactId === "artifact-requirement-accepted",
+      ),
+    ).toBe(true);
+    expect(
+      findings.some(
+        (finding) => finding.artifactId === "artifact-requirement-rejected",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not treat a lone when clause as acceptance criteria", () => {
+    const findings = evaluateRequirementQuality(
+      [
+        requirement({
+          content:
+            "The support team should view the case status when a customer calls so that they can answer quickly.",
+        }),
+      ],
+      { language: "en" },
+    );
+
+    expect(findings.map((finding) => finding.kind)).toContain(
+      "missing-acceptance-criteria",
+    );
   });
 
   it("does not flag acceptance or non-functional gaps when evidence is present", () => {
