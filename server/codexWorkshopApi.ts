@@ -4,6 +4,7 @@ export type IncomingBody = {
   message?: unknown;
   session?: unknown;
   attachments?: unknown;
+  scope?: unknown;
 };
 
 type OpenAIResponsePayload = {
@@ -54,6 +55,7 @@ export async function createCodexWorkshopTurn(
     message,
     attachments,
     session: payload.session,
+    scope: payload.scope,
   });
 
   const upstream = await fetchImpl("https://api.openai.com/v1/responses", {
@@ -91,6 +93,7 @@ export function createServerSafeWorkshopPayload(payload: IncomingBody) {
       "The human attached files for workshop review.",
     newAttachments: attachments.slice(0, 12).map(readSafeAttachment),
     session: readSafeSession(payload.session),
+    scope: readSafeScope(payload.scope),
   };
 }
 
@@ -229,6 +232,21 @@ function readSafeAttachment(value: unknown) {
     summary: safeString(attachment.summary, 1000),
     extractedText: safeString(attachment.extractedText, 6000),
     tags: readStringArray(attachment.tags, 8, 40),
+  };
+}
+
+function readSafeScope(value: unknown) {
+  const scope = isObject(value) ? value : {};
+  const organizationId = safeString(scope.organizationId, 120);
+  const workshopId = safeString(scope.workshopId, 120);
+
+  if (!organizationId || !workshopId) {
+    return undefined;
+  }
+
+  return {
+    organizationId,
+    workshopId,
   };
 }
 

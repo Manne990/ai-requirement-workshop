@@ -910,6 +910,13 @@ function WorkshopRoom() {
         session,
         message,
         attachmentsForTurn,
+        organizationRuntime && authSession?.user
+          ? {
+              organizationState: organizationRuntime.state,
+              organizationId: organizationRuntime.context.organization.id,
+              actorUserId: authSession.user.id,
+            }
+          : undefined,
       );
       setSession((current) => {
         const next = applyCodexWorkshopTurn(

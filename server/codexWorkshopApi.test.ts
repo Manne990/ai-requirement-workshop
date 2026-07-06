@@ -45,6 +45,11 @@ describe("codexWorkshopApi", () => {
       const input = JSON.parse(String(requestBody.input)) as {
         latestHumanMessage?: string;
         session?: { recentMessages?: unknown[]; secretDebugState?: unknown };
+        scope?: {
+          organizationId?: string;
+          workshopId?: string;
+          actorUserId?: string;
+        };
       };
 
       expect(requestBody.model).toBe("gpt-5.5");
@@ -54,6 +59,11 @@ describe("codexWorkshopApi", () => {
       expect(requestBody.input).toContain("Connected alarm dashboard");
       expect(input.session?.recentMessages).toHaveLength(1);
       expect(input.session).not.toHaveProperty("secretDebugState");
+      expect(input.scope).toEqual({
+        organizationId: "org-1",
+        workshopId: "workshop-1",
+      });
+      expect(input.scope).not.toHaveProperty("actorUserId");
 
       return new Response(
         JSON.stringify({
@@ -88,6 +98,11 @@ describe("codexWorkshopApi", () => {
                 body: "Connected alarm dashboard",
               },
             ],
+          },
+          scope: {
+            organizationId: "org-1",
+            workshopId: "workshop-1",
+            actorUserId: "user-owner",
           },
         },
         fetchImpl,
@@ -168,12 +183,21 @@ describe("codexWorkshopApi", () => {
           },
         ],
       },
+      scope: {
+        organizationId: "org-1",
+        workshopId: "workshop-1",
+        actorUserId: "user-owner",
+      },
     });
     const serialized = JSON.stringify(safePayload);
 
     expect(safePayload.newAttachments).toHaveLength(12);
     expect(safePayload.session.recentMessages).toHaveLength(8);
     expect(safePayload.session.artifacts).toHaveLength(24);
+    expect(safePayload.scope).toEqual({
+      organizationId: "org-1",
+      workshopId: "workshop-1",
+    });
     expect(safePayload.newAttachments[0]?.tags).toHaveLength(8);
     expect(
       safePayload.newAttachments[0]?.extractedText.length,
@@ -181,6 +205,7 @@ describe("codexWorkshopApi", () => {
     expect(serialized).not.toContain("secretDebugState");
     expect(serialized).not.toContain("rawBytes");
     expect(serialized).not.toContain("objectPath");
+    expect(serialized).not.toContain("user-owner");
     expect(serialized).not.toContain("hunter2");
     expect(serialized).not.toContain("supersecret");
     expect(serialized).not.toContain("ops@example.com");

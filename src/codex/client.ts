@@ -6,12 +6,19 @@ import {
 import type { AttachmentDraft } from "../domain/attachments";
 import type { CodexWorkshopTurn } from "../domain/codexWorkshop";
 import { buildSafeAiWorkshopPayload } from "../domain/security";
+import type { OrganizationState } from "../domain/organization";
 import type { WorkshopSession } from "../domain/workshop";
 
 export type CodexStatus = {
   configured: boolean;
   model: string;
   message: string;
+};
+
+export type CodexWorkshopScope = {
+  organizationState: OrganizationState;
+  organizationId: string;
+  actorUserId: string;
 };
 
 export async function fetchCodexStatus(): Promise<CodexStatus> {
@@ -31,11 +38,20 @@ export async function requestCodexWorkshopTurn(
   session: WorkshopSession,
   message: string,
   attachments: AttachmentDraft[] = [],
+  scope?: CodexWorkshopScope,
 ): Promise<CodexWorkshopTurn> {
   const boundary = buildSafeAiWorkshopPayload({
     session,
     message,
     attachments,
+    organizationState: scope?.organizationState,
+    actorUserId: scope?.actorUserId,
+    workshop: scope
+      ? {
+          id: session.id,
+          organizationId: scope.organizationId,
+        }
+      : undefined,
   });
   const response = await fetch(codexWorkshopTurnEndpoint, {
     method: "POST",
