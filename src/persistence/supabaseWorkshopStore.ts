@@ -387,6 +387,8 @@ function rowToWorkshopRecord(row: WorkshopRow): WorkshopRecord {
       prototypes: session.prototypes ?? [],
       updatedAt,
     },
+    requirements: [],
+    auditEvents: [],
     seenInsightIdsByParticipant: normalizeSeenInsights(
       row.seen_insight_ids_by_participant,
     ),

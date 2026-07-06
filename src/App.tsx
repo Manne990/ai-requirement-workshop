@@ -86,11 +86,14 @@ import {
   approveRequirementPanelItem,
   baselineRequirementPanelItem,
   parkRuntimeConsolidationSuggestion,
+  recordRequirementPanelLedgerAction,
   rejectRequirementPanelItem,
   selectConsolidationPanelArtifacts,
   selectConsolidationPanelSuggestionsFromSession,
   selectRequirementPanelItemsFromSession,
   supersedeRequirementPanelItem,
+  type RequirementRuntimeAuditedAction,
+  type RequirementRuntimeLedger,
 } from "./domain/requirementRuntime";
 import {
   createAuthBoundaryTelemetry,
@@ -367,6 +370,11 @@ function WorkshopRoom() {
   const [session, setSession] = useState<WorkshopSession>(
     initialWorkshopState.session,
   );
+  const [requirementLedger, setRequirementLedger] =
+    useState<RequirementRuntimeLedger>({
+      requirements: initialWorkshopState.requirements,
+      auditEvents: initialWorkshopState.auditEvents,
+    });
   const [draft, setDraft] = useState("");
   const [pendingAttachments, setPendingAttachments] = useState<
     AttachmentDraft[]
@@ -628,6 +636,10 @@ function WorkshopRoom() {
             ? record.seenInsightIdsByParticipant
             : current,
         );
+        setRequirementLedger({
+          requirements: record.requirements,
+          auditEvents: record.auditEvents,
+        });
         setActiveWorkshopIdState((current) =>
           current === initialWorkshopState.session.id ? record.id : current,
         );
@@ -733,6 +745,8 @@ function WorkshopRoom() {
 
     const record = createWorkshopRecord(session, seenInsightIdsByParticipant, {
       organizationId: organizationRuntime.context.organization.id,
+      requirements: requirementLedger.requirements,
+      auditEvents: requirementLedger.auditEvents,
     });
     workshopRepository.setActiveWorkshopId(record.id);
     setActiveWorkshopIdState(record.id);
@@ -777,6 +791,8 @@ function WorkshopRoom() {
     createTelemetryOptions,
     isStoreReady,
     organizationRuntime,
+    requirementLedger.auditEvents,
+    requirementLedger.requirements,
     seenInsightIdsByParticipant,
     session,
   ]);
@@ -918,6 +934,7 @@ function WorkshopRoom() {
     );
     setSelectedInsightParticipantId(null);
     setSeenInsightIdsByParticipant({});
+    setRequirementLedger({ requirements: [], auditEvents: [] });
   }, []);
 
   const handleCreateWorkshop = useCallback(() => {
@@ -928,6 +945,7 @@ function WorkshopRoom() {
     setDraft("");
     setSelectedInsightParticipantId(null);
     setSeenInsightIdsByParticipant({});
+    setRequirementLedger({ requirements: [], auditEvents: [] });
     setActiveWorkshopIdState(next.id);
     workshopRepository.setActiveWorkshopId(next.id);
   }, []);
@@ -935,9 +953,17 @@ function WorkshopRoom() {
   const handleExportWorkshop = useCallback(() => {
     const record = createWorkshopRecord(session, seenInsightIdsByParticipant, {
       organizationId: organizationRuntime?.context.organization.id,
+      requirements: requirementLedger.requirements,
+      auditEvents: requirementLedger.auditEvents,
     });
     downloadWorkshopRecord(record);
-  }, [organizationRuntime, seenInsightIdsByParticipant, session]);
+  }, [
+    organizationRuntime,
+    requirementLedger.auditEvents,
+    requirementLedger.requirements,
+    seenInsightIdsByParticipant,
+    session,
+  ]);
 
   const handleImportWorkshopClick = useCallback(() => {
     importInputRef.current?.click();
@@ -969,6 +995,10 @@ function WorkshopRoom() {
         setPendingAttachments([]);
         setDraft("");
         setSeenInsightIdsByParticipant(record.seenInsightIdsByParticipant);
+        setRequirementLedger({
+          requirements: record.requirements,
+          auditEvents: record.auditEvents,
+        });
         setSelectedInsightParticipantId(null);
         setActiveWorkshopIdState(record.id);
         setWorkshopSummaries(
@@ -1023,6 +1053,10 @@ function WorkshopRoom() {
       setPendingAttachments([]);
       setDraft("");
       setSeenInsightIdsByParticipant(scopedRecord.seenInsightIdsByParticipant);
+      setRequirementLedger({
+        requirements: scopedRecord.requirements,
+        auditEvents: scopedRecord.auditEvents,
+      });
       setSelectedInsightParticipantId(null);
       setActiveWorkshopIdState(scopedRecord.id);
       workshopRepository.setActiveWorkshopId(scopedRecord.id);
@@ -1282,8 +1316,41 @@ function WorkshopRoom() {
     [],
   );
 
+  const recordRequirementLedgerAction = useCallback(
+    (
+      next: WorkshopSession,
+      requirement: RequirementPanelItem,
+      action: RequirementRuntimeAuditedAction,
+      at: string,
+    ) => {
+      const organizationId = organizationRuntime?.context.organization.id;
+      if (!organizationId) {
+        return;
+      }
+
+      setRequirementLedger((current) =>
+        recordRequirementPanelLedgerAction(
+          next,
+          current,
+          requirement,
+          action,
+          {
+            organizationId,
+            workshopId: next.id,
+          },
+          {
+            actorId: participantIds.human,
+            at,
+          },
+        ),
+      );
+    },
+    [organizationRuntime?.context.organization.id],
+  );
+
   const handleApproveRequirement = useCallback(
     (requirement: RequirementPanelItem) => {
+      const changedAt = new Date().toISOString();
       setSession((current) =>
         updateRequirementWithTelemetry(
           current,
@@ -1291,24 +1358,33 @@ function WorkshopRoom() {
           (sessionToUpdate) =>
             approveRequirementPanelItem(sessionToUpdate, requirement, {
               actorId: participantIds.human,
+              at: changedAt,
             }),
-          (next, nextRequirement, previousStatus) =>
-            createRequirementApprovedTelemetry(next, nextRequirement, {
+          (next, nextRequirement, previousStatus) => {
+            recordRequirementLedgerAction(
+              next,
+              requirement,
+              "approved",
+              changedAt,
+            );
+            return createRequirementApprovedTelemetry(next, nextRequirement, {
               ...createTelemetryOptions(
                 "canvas",
                 "user",
                 "WorkshopRoom.handleApproveRequirement",
               ),
               previousStatus,
-            }),
+            });
+          },
         ),
       );
     },
-    [createTelemetryOptions],
+    [createTelemetryOptions, recordRequirementLedgerAction],
   );
 
   const handleRejectRequirement = useCallback(
     (requirement: RequirementPanelItem) => {
+      const changedAt = new Date().toISOString();
       setSession((current) =>
         updateRequirementWithTelemetry(
           current,
@@ -1316,24 +1392,33 @@ function WorkshopRoom() {
           (sessionToUpdate) =>
             rejectRequirementPanelItem(sessionToUpdate, requirement, {
               actorId: participantIds.human,
+              at: changedAt,
             }),
-          (next, nextRequirement, previousStatus) =>
-            createRequirementRejectedTelemetry(next, nextRequirement, {
+          (next, nextRequirement, previousStatus) => {
+            recordRequirementLedgerAction(
+              next,
+              requirement,
+              "rejected",
+              changedAt,
+            );
+            return createRequirementRejectedTelemetry(next, nextRequirement, {
               ...createTelemetryOptions(
                 "canvas",
                 "user",
                 "WorkshopRoom.handleRejectRequirement",
               ),
               previousStatus,
-            }),
+            });
+          },
         ),
       );
     },
-    [createTelemetryOptions],
+    [createTelemetryOptions, recordRequirementLedgerAction],
   );
 
   const handleSupersedeRequirement = useCallback(
     (requirement: RequirementPanelItem) => {
+      const changedAt = new Date().toISOString();
       setSession((current) =>
         updateRequirementWithTelemetry(
           current,
@@ -1341,25 +1426,34 @@ function WorkshopRoom() {
           (sessionToUpdate) =>
             supersedeRequirementPanelItem(sessionToUpdate, requirement, {
               actorId: participantIds.human,
+              at: changedAt,
               rationale: "Marked as superseded from the requirements panel.",
             }),
-          (next, nextRequirement, previousStatus) =>
-            createRequirementSupersededTelemetry(next, nextRequirement, {
+          (next, nextRequirement, previousStatus) => {
+            recordRequirementLedgerAction(
+              next,
+              requirement,
+              "superseded",
+              changedAt,
+            );
+            return createRequirementSupersededTelemetry(next, nextRequirement, {
               ...createTelemetryOptions(
                 "canvas",
                 "user",
                 "WorkshopRoom.handleSupersedeRequirement",
               ),
               previousStatus,
-            }),
+            });
+          },
         ),
       );
     },
-    [createTelemetryOptions],
+    [createTelemetryOptions, recordRequirementLedgerAction],
   );
 
   const handleBaselineRequirement = useCallback(
     (requirement: RequirementPanelItem) => {
+      const changedAt = new Date().toISOString();
       setSession((current) =>
         updateRequirementWithTelemetry(
           current,
@@ -1367,20 +1461,28 @@ function WorkshopRoom() {
           (sessionToUpdate) =>
             baselineRequirementPanelItem(sessionToUpdate, requirement, {
               actorId: participantIds.human,
+              at: changedAt,
             }),
-          (next, nextRequirement, previousStatus) =>
-            createRequirementBaselinedTelemetry(next, nextRequirement, {
+          (next, nextRequirement, previousStatus) => {
+            recordRequirementLedgerAction(
+              next,
+              requirement,
+              "baselined",
+              changedAt,
+            );
+            return createRequirementBaselinedTelemetry(next, nextRequirement, {
               ...createTelemetryOptions(
                 "canvas",
                 "user",
                 "WorkshopRoom.handleBaselineRequirement",
               ),
               previousStatus,
-            }),
+            });
+          },
         ),
       );
     },
-    [createTelemetryOptions],
+    [createTelemetryOptions, recordRequirementLedgerAction],
   );
 
   const artifactPositions = useMemo(
@@ -2440,6 +2542,8 @@ function loadInitialWorkshopState() {
   return {
     session: loadSession(),
     seenInsightIdsByParticipant: loadSeenInsightIdsByParticipant(),
+    requirements: [],
+    auditEvents: [],
   };
 }
 

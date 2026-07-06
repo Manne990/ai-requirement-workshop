@@ -32,6 +32,8 @@ export type ServerWorkshopRecord = {
     prototypes?: unknown[];
     [key: string]: unknown;
   };
+  requirements?: unknown[];
+  auditEvents?: unknown[];
   seenInsightIdsByParticipant: Record<string, string[]>;
 };
 
@@ -213,6 +215,8 @@ function normalizeServerWorkshopRecord(body: unknown): ServerWorkshopRecord {
       prototypes: arrayOr(session.prototypes),
       updatedAt,
     },
+    requirements: arrayOr(record.requirements),
+    auditEvents: arrayOr(record.auditEvents),
     seenInsightIdsByParticipant: normalizeSeenInsights(
       record.seenInsightIdsByParticipant,
     ),

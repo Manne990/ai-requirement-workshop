@@ -4,6 +4,7 @@ import {
   approveRequirementPanelItem,
   baselineRequirementPanelItem,
   parkRuntimeConsolidationSuggestion,
+  recordRequirementPanelLedgerAction,
   rejectRequirementPanelItem,
   selectConsolidationPanelArtifacts,
   selectConsolidationPanelSuggestionsFromSession,
@@ -263,6 +264,103 @@ describe("requirement runtime adapter", () => {
       expect.arrayContaining(["consolidation-parked"]),
     );
     expect(selectConsolidationPanelSuggestionsFromSession(parked)).toEqual([]);
+  });
+
+  it("records requirement panel lifecycle actions into a durable ledger", () => {
+    const session = sessionWithArtifacts([
+      artifact({
+        id: "artifact-requirement-1",
+        title: "Alarm overview",
+        content: "The dashboard should show active customer alarms.",
+        tags: ["candidate"],
+      }),
+    ]);
+
+    const approvedSession = approveRequirementPanelItem(
+      session,
+      "artifact-requirement-1",
+      {
+        actorId: participantIds.human,
+        at: "2026-07-06T09:20:00.000Z",
+      },
+    );
+    const approvedLedger = recordRequirementPanelLedgerAction(
+      approvedSession,
+      { requirements: [], auditEvents: [] },
+      "artifact-requirement-1",
+      "approved",
+      {
+        organizationId: "org-1",
+        workshopId: approvedSession.id,
+      },
+      {
+        actorId: participantIds.human,
+        at: "2026-07-06T09:20:00.000Z",
+      },
+    );
+
+    expect(approvedLedger.requirements).toHaveLength(1);
+    expect(approvedLedger.requirements[0]).toMatchObject({
+      id: "requirement-artifact-requirement-1",
+      state: "approved",
+      version: 2,
+      approvedBy: participantIds.human,
+    });
+    expect(approvedLedger.auditEvents.map((event) => event.action)).toEqual([
+      "requirement.created",
+      "requirement.approved",
+    ]);
+
+    const baselinedSession = baselineRequirementPanelItem(
+      approvedSession,
+      "artifact-requirement-1",
+      {
+        actorId: participantIds.human,
+        at: "2026-07-06T09:25:00.000Z",
+      },
+    );
+    const baselinedLedger = recordRequirementPanelLedgerAction(
+      baselinedSession,
+      approvedLedger,
+      "artifact-requirement-1",
+      "baselined",
+      {
+        organizationId: "org-1",
+        workshopId: approvedSession.id,
+      },
+      {
+        actorId: participantIds.human,
+        at: "2026-07-06T09:25:00.000Z",
+      },
+    );
+    const duplicateLedger = recordRequirementPanelLedgerAction(
+      baselinedSession,
+      baselinedLedger,
+      "artifact-requirement-1",
+      "baselined",
+      {
+        organizationId: "org-1",
+        workshopId: approvedSession.id,
+      },
+      {
+        actorId: participantIds.human,
+        at: "2026-07-06T09:25:00.000Z",
+      },
+    );
+
+    expect(baselinedLedger.requirements[0]).toMatchObject({
+      state: "baselined",
+      version: 3,
+      baselinedBy: participantIds.human,
+    });
+    expect(baselinedLedger.auditEvents.map((event) => event.action)).toEqual([
+      "requirement.created",
+      "requirement.approved",
+      "requirement.baselined",
+    ]);
+    expect(duplicateLedger.auditEvents).toHaveLength(
+      baselinedLedger.auditEvents.length,
+    );
   });
 });
 

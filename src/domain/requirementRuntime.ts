@@ -5,14 +5,23 @@ import {
   type ArtifactConsolidationSuggestion,
   type ConsolidationSuggestionOptions,
 } from "./artifactConsolidation";
+import { auditRequirementHistory, type AuditEvent } from "./audit";
 import {
+  approveRequirement,
+  baselineRequirement,
+  createRequirementCandidateFromArtifact,
+  promoteRequirementToCandidate,
+  rejectRequirement,
+  reopenRequirement,
   selectRequirementPanelItems,
+  type Requirement,
   type RequirementPanelItem,
 } from "./requirements";
-import type {
-  ArtifactStatus,
-  WorkshopArtifact,
-  WorkshopSession,
+import {
+  participantIds,
+  type ArtifactStatus,
+  type WorkshopArtifact,
+  type WorkshopSession,
 } from "./workshop";
 
 export type RuntimeConsolidationSuggestionState =
@@ -39,6 +48,19 @@ export type RequirementRuntimeActionOptions = {
   at?: string;
   rationale?: string;
 };
+
+export type RequirementRuntimeLedger = {
+  requirements: Requirement[];
+  auditEvents: AuditEvent[];
+};
+
+export type RequirementRuntimeAuditContext = {
+  organizationId: string;
+  workshopId: string;
+};
+
+export type RequirementRuntimeAuditedAction =
+  "approved" | "rejected" | "baselined" | "superseded";
 
 export type RuntimeConsolidationActionOptions =
   ApplyArtifactConsolidationOptions;
@@ -163,6 +185,63 @@ export function supersedeRequirementPanelItem(
     ],
     options,
   );
+}
+
+export function recordRequirementPanelLedgerAction(
+  session: WorkshopSession,
+  ledger: RequirementRuntimeLedger,
+  requirement: RequirementPanelItem | string,
+  action: RequirementRuntimeAuditedAction,
+  context: RequirementRuntimeAuditContext,
+  options: RequirementRuntimeActionOptions = {},
+): RequirementRuntimeLedger {
+  const requirementId = requirementIdOf(requirement);
+  const artifact = session.artifacts.find(
+    (candidate) =>
+      candidate.id === requirementId && candidate.type === "requirement",
+  );
+
+  if (!artifact) {
+    return ledger;
+  }
+
+  const actorId = options.actorId ?? participantIds.human;
+  const at = options.at ?? artifact.updatedAt ?? now();
+  const command = {
+    actorId,
+    at,
+    rationale: options.rationale ?? defaultLedgerRationale(action, artifact),
+  };
+  const existing = findRequirementForArtifact(ledger.requirements, artifact.id);
+  const source =
+    existing ??
+    createRequirementCandidateFromArtifact(artifact, {
+      actorId,
+      at,
+      rationale: "Captured from a workshop requirement artifact.",
+      acceptanceCriteria: [
+        `The requirement is accepted as written in artifact ${artifact.id}.`,
+      ],
+    });
+  const updatedRequirement = updateRequirementForLedgerAction(
+    source,
+    action,
+    command,
+  );
+  const requirements = upsertRequirement(
+    ledger.requirements,
+    updatedRequirement,
+  );
+  const auditEvents = appendRequirementAuditEvents(
+    ledger.auditEvents,
+    updatedRequirement,
+    context,
+  );
+
+  return {
+    requirements,
+    auditEvents,
+  };
 }
 
 export function applyRuntimeConsolidationSuggestion(
@@ -329,4 +408,211 @@ function addTags(
   tagsToAdd: readonly string[],
 ) {
   return [...new Set([...existingTags, ...tagsToAdd])];
+}
+
+function findRequirementForArtifact(
+  requirements: Requirement[],
+  artifactId: string,
+) {
+  return requirements.find(
+    (requirement) =>
+      requirement.sourceRefs.some(
+        (source) => source.artifactId === artifactId,
+      ) || requirement.id === requirementIdFromArtifact(artifactId),
+  );
+}
+
+function updateRequirementForLedgerAction(
+  requirement: Requirement,
+  action: RequirementRuntimeAuditedAction,
+  command: RequirementRuntimeActionOptions & {
+    actorId: string;
+    at: string;
+    rationale: string;
+  },
+) {
+  if (action === "approved") {
+    return requirement.state === "approved" || requirement.state === "baselined"
+      ? requirement
+      : approveRequirement(
+          requirementForApproval(requirement, command),
+          command,
+        );
+  }
+
+  if (action === "rejected") {
+    return requirement.state === "rejected"
+      ? requirement
+      : rejectRequirement(requirement, command);
+  }
+
+  if (action === "baselined") {
+    const approved =
+      requirement.state === "approved" || requirement.state === "baselined"
+        ? requirement
+        : approveRequirement(requirementForApproval(requirement, command), {
+            ...command,
+            rationale:
+              "Approved before baselining from the requirements panel.",
+          });
+
+    return approved.state === "baselined"
+      ? approved
+      : baselineRequirement(approved, command);
+  }
+
+  return markRequirementSupersededFromPanel(requirement, command);
+}
+
+function requirementForApproval(
+  requirement: Requirement,
+  command: RequirementRuntimeActionOptions & {
+    actorId: string;
+    at: string;
+    rationale: string;
+  },
+) {
+  if (requirement.state === "candidate") {
+    return requirement;
+  }
+
+  if (requirement.state === "draft") {
+    return promoteRequirementToCandidate(requirement, {
+      ...command,
+      rationale: "Promoted before approval from the requirements panel.",
+    });
+  }
+
+  if (requirement.state === "rejected") {
+    return reopenRequirement(requirement, {
+      ...command,
+      rationale: "Reopened before approval from the requirements panel.",
+    });
+  }
+
+  return requirement;
+}
+
+function upsertRequirement(
+  requirements: Requirement[],
+  updatedRequirement: Requirement,
+) {
+  const existingIndex = requirements.findIndex(
+    (requirement) => requirement.id === updatedRequirement.id,
+  );
+
+  if (existingIndex < 0) {
+    return [...requirements, updatedRequirement];
+  }
+
+  return requirements.map((requirement, index) =>
+    index === existingIndex ? updatedRequirement : requirement,
+  );
+}
+
+function markRequirementSupersededFromPanel(
+  requirement: Requirement,
+  command: RequirementRuntimeActionOptions & {
+    actorId: string;
+    at: string;
+    rationale: string;
+  },
+): Requirement {
+  if (requirement.state === "superseded") {
+    return requirement;
+  }
+
+  const version = requirement.version + 1;
+
+  return {
+    ...requirement,
+    state: "superseded",
+    version,
+    updatedAt: command.at,
+    supersededByRequirementIds: requirement.supersededByRequirementIds ?? [],
+    history: [
+      ...requirement.history,
+      {
+        id: `${requirement.id}:history-${requirement.history.length + 1}`,
+        action: "superseded",
+        at: command.at,
+        actorId: command.actorId,
+        fromState: requirement.state,
+        toState: "superseded",
+        rationale: command.rationale,
+        version,
+        changes: [],
+      },
+    ],
+  };
+}
+
+function appendRequirementAuditEvents(
+  auditEvents: AuditEvent[],
+  requirement: Requirement,
+  context: RequirementRuntimeAuditContext,
+) {
+  const existingHistoryIds = new Set(
+    auditEvents
+      .filter((event) => event.target.id === requirement.id)
+      .map((event) => event.metadata.historyEntryId)
+      .filter(
+        (historyEntryId): historyEntryId is string =>
+          typeof historyEntryId === "string",
+      ),
+  );
+  const nextSequence = nextAuditSequence(auditEvents);
+  const newEvents = auditRequirementHistory(requirement, {
+    ...context,
+    sequenceStart: 1,
+  })
+    .filter(
+      (event) =>
+        typeof event.metadata.historyEntryId !== "string" ||
+        !existingHistoryIds.has(event.metadata.historyEntryId),
+    )
+    .map((event, index) => ({
+      ...event,
+      id: createAuditEventId(context.workshopId, nextSequence + index),
+    }));
+
+  return [...auditEvents, ...newEvents];
+}
+
+function nextAuditSequence(auditEvents: AuditEvent[]) {
+  const maxSequence = auditEvents.reduce((max, event) => {
+    const sequence = Number(event.id.match(/:audit-(\d+)$/)?.[1]);
+    return Number.isFinite(sequence) ? Math.max(max, sequence) : max;
+  }, 0);
+
+  return maxSequence + 1;
+}
+
+function createAuditEventId(workshopId: string, sequence: number) {
+  return `${workshopId}:audit-${String(sequence).padStart(4, "0")}`;
+}
+
+function defaultLedgerRationale(
+  action: RequirementRuntimeAuditedAction,
+  artifact: WorkshopArtifact,
+) {
+  if (action === "approved") {
+    return `Approved requirement artifact ${artifact.id} from the requirements panel.`;
+  }
+
+  if (action === "rejected") {
+    return `Rejected requirement artifact ${artifact.id} from the requirements panel.`;
+  }
+
+  if (action === "baselined") {
+    return `Baselined requirement artifact ${artifact.id} from the requirements panel.`;
+  }
+
+  return `Marked requirement artifact ${artifact.id} as superseded from the requirements panel.`;
+}
+
+function requirementIdFromArtifact(artifactId: string) {
+  return artifactId.startsWith("requirement-")
+    ? artifactId
+    : `requirement-${artifactId}`;
 }

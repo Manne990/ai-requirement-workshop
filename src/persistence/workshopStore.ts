@@ -1,4 +1,6 @@
 import { redactSensitiveText } from "../domain/security";
+import type { AuditEvent } from "../domain/audit";
+import type { Requirement } from "../domain/requirements";
 import type { WorkshopSession } from "../domain/workshop";
 
 export type SeenInsightIdsByParticipant = Record<string, string[]>;
@@ -10,6 +12,8 @@ export type WorkshopRecord = {
   createdAt: string;
   updatedAt: string;
   session: WorkshopSession;
+  requirements: Requirement[];
+  auditEvents: AuditEvent[];
   seenInsightIdsByParticipant: SeenInsightIdsByParticipant;
 };
 
@@ -49,6 +53,8 @@ export type WorkshopRecordExportProvenance = {
 
 export type CreateWorkshopRecordOptions = {
   organizationId?: string;
+  requirements?: Requirement[];
+  auditEvents?: AuditEvent[];
 };
 
 const dbName = "ai-requirement-workshop";
@@ -117,6 +123,8 @@ export function createWorkshopRecord(
       attachments: session.attachments ?? [],
       prototypes: session.prototypes ?? [],
     },
+    requirements: options.requirements ?? [],
+    auditEvents: options.auditEvents ?? [],
     seenInsightIdsByParticipant,
   };
 }
@@ -353,6 +361,8 @@ function normalizeWorkshopRecord(value: unknown): WorkshopRecord {
     seenInsightIdsByParticipant: normalizeSeenInsightIds(
       value.seenInsightIdsByParticipant,
     ),
+    requirements: arrayOr(value.requirements) as Requirement[],
+    auditEvents: arrayOr(value.auditEvents) as AuditEvent[],
   };
 }
 

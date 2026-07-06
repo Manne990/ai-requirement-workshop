@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { auditRequirementHistory } from "../domain/audit";
+import { createRequirement } from "../domain/requirements";
 import { createInitialWorkshopSession } from "../domain/workshop";
 import {
   createWorkshopRecord,
@@ -106,6 +108,44 @@ describe("workshopStore export format", () => {
     expect(serialized).toContain("[REDACTED:");
     expect(parsed.id).toBe("workshop-export-redaction");
     expect(parsed.session.attachments[0]?.summary).toContain("[REDACTED:");
+  });
+
+  it("round-trips persisted requirement ledger and audit events", () => {
+    const session = createInitialWorkshopSession(
+      "2026-07-06T08:00:00.000Z",
+      "workshop-ledger-export",
+    );
+    const requirement = createRequirement({
+      id: "requirement-1",
+      title: "Alarm dashboard",
+      statement: "The dashboard should show active alarms.",
+      state: "candidate",
+      createdAt: "2026-07-06T08:01:00.000Z",
+      createdBy: "agent-quality",
+      sourceRefs: [{ messageId: "message-1", participantId: "human-1" }],
+      rationale: "Derived from workshop discussion.",
+    });
+    const auditEvents = auditRequirementHistory(requirement, {
+      organizationId: "organization-001",
+      workshopId: session.id,
+    });
+    const record = createWorkshopRecord(
+      session,
+      {},
+      {
+        organizationId: "organization-001",
+        requirements: [requirement],
+        auditEvents,
+      },
+    );
+    const parsed = parseWorkshopRecordExport(
+      JSON.stringify(
+        createWorkshopRecordExport(record, "2026-07-06T08:05:00.000Z"),
+      ),
+    );
+
+    expect(parsed.requirements).toEqual([requirement]);
+    expect(parsed.auditEvents).toEqual(auditEvents);
   });
 
   it("normalizes legacy imports that do not have prototypes yet", () => {
