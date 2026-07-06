@@ -38,9 +38,15 @@ describe("Codex workshop turn", () => {
     expect(next.messages).toHaveLength(3);
     expect(next.messages[1]?.kind).toBe("human-input");
     expect(next.messages[2]?.body).toContain("Vilka användare");
-    expect(next.artifacts).toHaveLength(2);
+    expect(next.artifacts.length).toBeGreaterThanOrEqual(2);
+    expect(next.artifacts[0]?.type).toBe("problem");
     expect(next.artifacts[1]?.createdBy).toBe("agent-quality");
     expect(next.artifacts[1]?.tags).toContain("codex");
+    expect(
+      next.artifacts.some((artifact) =>
+        artifact.tags.includes("quality-check"),
+      ),
+    ).toBe(true);
     expect(next.selectedArtifactId).toBe(next.artifacts[1]?.id);
   });
 
@@ -69,9 +75,12 @@ describe("Codex workshop turn", () => {
       "2026-07-01T10:01:00.000Z",
     );
 
-    expect(next.artifacts).toHaveLength(1);
-    expect(next.artifacts[0]?.createdBy).toBe("facilitator");
-    expect(next.artifacts[0]?.status).toBe("draft");
+    const requirement = next.artifacts.find(
+      (artifact) => artifact.type === "requirement",
+    );
+
+    expect(requirement?.createdBy).toBe("facilitator");
+    expect(requirement?.status).toBe("draft");
   });
 
   it("creates source artifacts for attachments before Codex artifacts", () => {
@@ -109,4 +118,97 @@ describe("Codex workshop turn", () => {
     expect(next.artifacts[0]?.title).toBe("requirements.csv");
     expect(next.artifacts[1]?.type).toBe("question");
   });
+
+  it("adds deterministic quality question artifacts for weak requirement drafts", () => {
+    const next = applyCodexWorkshopTurn(
+      createInitialWorkshopSession("2026-07-01T10:00:00.000Z"),
+      "The support team needs a portal.",
+      {
+        facilitatorMessage: "I captured that. What should we verify first?",
+        artifacts: [
+          {
+            type: "requirement",
+            title: "Better support portal",
+            content:
+              "The portal should be easy to use and improve support outcomes.",
+            createdBy: "agent-quality",
+          },
+        ],
+      },
+      [],
+      "2026-07-01T10:01:00.000Z",
+    );
+
+    const qualityKinds = next.artifacts
+      .filter((artifact) => artifact.tags.includes("quality-check"))
+      .flatMap((artifact) => artifact.tags);
+
+    expect(qualityKinds).toEqual(
+      expect.arrayContaining([
+        "quality:ambiguity",
+        "quality:missing-acceptance-criteria",
+        "quality:unverifiable-claim",
+        "quality:missing-non-functional-concern",
+      ]),
+    );
+  });
+
+  it("uses a quality question when Codex facilitator guidance lacks one", () => {
+    const next = applyCodexWorkshopTurn(
+      createInitialWorkshopSession("2026-07-01T10:00:00.000Z"),
+      "The support team needs a portal.",
+      {
+        facilitatorMessage: "Captured the requirement on the canvas.",
+        artifacts: [
+          {
+            type: "requirement",
+            title: "Support portal",
+            content: "The portal should improve support outcomes.",
+            createdBy: "agent-quality",
+          },
+        ],
+      },
+      [],
+      "2026-07-01T10:01:00.000Z",
+    );
+
+    const facilitatorBody = next.messages.at(-1)?.body ?? "";
+
+    expect(facilitatorBody).toContain(
+      "What acceptance criterion would let the team approve this requirement?",
+    );
+    expect(questionCount(facilitatorBody)).toBe(1);
+  });
+
+  it("keeps facilitator guidance to one calm question in the user's language", () => {
+    const next = applyCodexWorkshopTurn(
+      createInitialWorkshopSession("2026-07-01T10:00:00.000Z"),
+      "Vi behöver en portal för supportteamet.",
+      {
+        facilitatorMessage:
+          "Great! What users need this first? What metric matters?",
+        artifacts: [
+          {
+            type: "problem",
+            title: "Supportportal",
+            content: "Supportteamet behöver en portal.",
+            createdBy: "facilitator",
+          },
+        ],
+      },
+      [],
+      "2026-07-01T10:01:00.000Z",
+    );
+
+    const facilitatorBody = next.messages.at(-1)?.body ?? "";
+
+    expect(facilitatorBody).toContain("Jag har fångat");
+    expect(facilitatorBody).toContain("Vilken detalj");
+    expect(facilitatorBody).not.toContain("!");
+    expect(questionCount(facilitatorBody)).toBe(1);
+  });
 });
+
+function questionCount(body: string) {
+  return body.split("?").length - 1;
+}

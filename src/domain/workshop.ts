@@ -30,7 +30,7 @@ export type MessageKind =
 export type VisualizationMode =
   "process" | "journey" | "requirements" | "risks";
 
-type WorkshopLanguage = "en" | "sv";
+export type WorkshopLanguage = "en" | "sv";
 
 export type SourceRef = {
   messageId?: string;
@@ -83,6 +83,7 @@ export type WorkshopSession = {
   attachments: import("./attachments").WorkshopAttachment[];
   artifacts: WorkshopArtifact[];
   links: ArtifactLink[];
+  prototypes: import("./prototype").Prototype[];
   selectedArtifactId?: string;
   visualizationMode: VisualizationMode;
   followDiscussion: boolean;
@@ -199,6 +200,7 @@ export function createInitialWorkshopSession(
     attachments: [],
     artifacts: [],
     links: [],
+    prototypes: [],
     selectedArtifactId: undefined,
     visualizationMode: "process",
     followDiscussion: true,
@@ -224,7 +226,7 @@ export function submitHumanMessage(
   if (!trimmed) {
     return session;
   }
-  const language = detectLanguage(trimmed);
+  const language = detectWorkshopLanguage(trimmed);
 
   const humanMessage: WorkshopMessage = {
     id: createId("message", session.messages.length + 1),
@@ -964,7 +966,7 @@ function buildReportSection(
   };
 }
 
-function detectLanguage(body: string): WorkshopLanguage {
+export function detectWorkshopLanguage(body: string): WorkshopLanguage {
   const lower = body.toLowerCase();
   if (/[åäö]/i.test(body)) {
     return "sv";

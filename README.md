@@ -35,6 +35,8 @@ Use [.env.example](.env.example) as the non-secret template for local and produc
 
 The production target is a Vercel-hosted React app with a minimal server-side BFF for Codex/OpenAI calls and Supabase as the auth, data, storage, and realtime boundary. See [docs/production-architecture.md](docs/production-architecture.md) for the full boundary, environment model, local-to-server migration path, rollout risks, and Gaia verification loop.
 
+The release gate is tracked in [docs/production-readiness-checklist.md](docs/production-readiness-checklist.md), including objective pass/fail evidence, first-release non-goals, rollback expectations, and the CI-safe production smoke coverage.
+
 ## Workshop State And Backups
 
 Workshop records are autosaved in browser storage. During local development, the app also mirrors each workshop record to disk through the Vite dev server.

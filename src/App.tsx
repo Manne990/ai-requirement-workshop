@@ -55,8 +55,14 @@ import {
   requestCodexWorkshopTurn,
   type CodexStatus,
 } from "./codex/client";
+import { PrototypePanel } from "./components/PrototypePanel";
 import { applyCodexWorkshopTurn } from "./domain/codexWorkshop";
 import type { AttachmentDraft } from "./domain/attachments";
+import {
+  generatePrototypeFromWorkshop,
+  recordPrototypeFeedback,
+  type PrototypeFeedbackInput,
+} from "./domain/prototype";
 import {
   evaluateWorkshopReadiness,
   type WorkshopReadiness,
@@ -68,6 +74,7 @@ import {
   selectArtifact,
   setFollowDiscussion,
   setVisualizationMode,
+  participantIds,
   updateArtifactStatus,
   type ArtifactStatus,
   type ArtifactType,
@@ -507,6 +514,34 @@ function App() {
     [],
   );
 
+  const handleGeneratePrototype = useCallback(() => {
+    setSession((current) =>
+      generatePrototypeFromWorkshop(current, {
+        title: `${current.title} prototype`,
+        actorId: participantIds.facilitator,
+        at: new Date().toISOString(),
+        sourceModel: {
+          provider: "codex",
+          model: codexStatus.model,
+          promptVersion: "prototype-generation-v1",
+          generatedBy: participantIds.facilitator,
+        },
+      }),
+    );
+  }, [codexStatus.model]);
+
+  const handlePrototypeFeedback = useCallback(
+    (input: PrototypeFeedbackInput) => {
+      setSession((current) =>
+        recordPrototypeFeedback(current, input, {
+          actorId: participantIds.human,
+          at: new Date().toISOString(),
+        }),
+      );
+    },
+    [],
+  );
+
   const artifactPositions = useMemo(
     () => layoutArtifactPositions(session.artifacts, session.visualizationMode),
     [session.artifacts, session.visualizationMode],
@@ -731,6 +766,13 @@ function App() {
               </ReactFlow>
             </div>
           </section>
+
+          <PrototypePanel
+            session={session}
+            modelName={codexStatus.model}
+            onGeneratePrototype={handleGeneratePrototype}
+            onRecordFeedback={handlePrototypeFeedback}
+          />
 
           <aside className="chat-pane" aria-label="Workshop chat">
             <div className="chat-header">
@@ -1385,6 +1427,7 @@ function migrateSession(session: Partial<WorkshopSession>): WorkshopSession {
     attachments: session.attachments ?? [],
     artifacts: session.artifacts ?? [],
     links: session.links ?? [],
+    prototypes: session.prototypes ?? [],
     visualizationMode: session.visualizationMode ?? fallback.visualizationMode,
     followDiscussion: session.followDiscussion ?? fallback.followDiscussion,
     updatedAt: session.updatedAt ?? fallback.updatedAt,

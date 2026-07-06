@@ -1,5 +1,12 @@
 import { type AttachmentDraft, type WorkshopAttachment } from "./attachments";
 import {
+  evaluateRequirementQuality,
+  firstRequirementQualityQuestion,
+  requirementQualityQuestionDraft,
+  type RequirementQualityFinding,
+} from "./requirementQuality";
+import {
+  detectWorkshopLanguage,
   participantIds,
   type ArtifactLink,
   type ArtifactStatus,
@@ -7,6 +14,7 @@ import {
   type Participant,
   type ParticipantStatus,
   type WorkshopArtifact,
+  type WorkshopLanguage,
   type WorkshopMessage,
   type WorkshopSession,
 } from "./workshop";
@@ -61,6 +69,9 @@ export function applyCodexWorkshopTurn(
   }
 
   const messageIndex = session.messages.length + 1;
+  const language = detectWorkshopLanguage(
+    `${trimmed} ${turn.facilitatorMessage}`,
+  );
   const humanMessage: WorkshopMessage = {
     id: createId("message", messageIndex),
     participantId: participantIds.human,
@@ -89,14 +100,41 @@ export function applyCodexWorkshopTurn(
     createdAt,
     attachmentArtifacts.length,
   );
-  const artifacts = [...attachmentArtifacts, ...codexArtifacts];
+  const qualityFindings = evaluateRequirementQuality(
+    [...session.artifacts, ...attachmentArtifacts, ...codexArtifacts],
+    {
+      language,
+      focusArtifactIds: codexArtifacts
+        .filter((artifact) => artifact.type === "requirement")
+        .map((artifact) => artifact.id),
+    },
+  );
+  const qualityArtifacts = createRequirementQualityArtifacts(
+    qualityFindings,
+    [...session.artifacts, ...attachmentArtifacts, ...codexArtifacts],
+    session.artifacts.length +
+      attachmentArtifacts.length +
+      codexArtifacts.length +
+      1,
+    humanMessage.id,
+    createdAt,
+  );
+  const artifacts = [
+    ...attachmentArtifacts,
+    ...codexArtifacts,
+    ...qualityArtifacts,
+  ];
   humanMessage.relatedArtifactIds = artifacts.map((artifact) => artifact.id);
 
   const facilitatorMessage: WorkshopMessage = {
     id: createId("message", messageIndex + 1),
     participantId: participantIds.facilitator,
     kind: "facilitator-guidance",
-    body: normalizeFacilitatorMessage(turn.facilitatorMessage),
+    body: normalizeFacilitatorMessage(
+      turn.facilitatorMessage,
+      language,
+      firstRequirementQualityQuestion(qualityFindings),
+    ),
     createdAt,
     relatedArtifactIds: artifacts
       .filter((artifact) => artifact.type === "question")
@@ -105,8 +143,9 @@ export function applyCodexWorkshopTurn(
   };
 
   const selectedArtifactId =
-    session.followDiscussion && artifacts.length > 0
-      ? artifacts[artifacts.length - 1]?.id
+    session.followDiscussion &&
+    (attachmentArtifacts.length > 0 || codexArtifacts.length > 0)
+      ? [...attachmentArtifacts, ...codexArtifacts].at(-1)?.id
       : session.selectedArtifactId;
 
   return {
@@ -165,6 +204,43 @@ function normalizeCodexArtifacts(
           participantId: createdBy,
         },
         tags: [...new Set(["codex", ...(draft.tags ?? [])])].slice(0, 6),
+      };
+    });
+}
+
+function createRequirementQualityArtifacts(
+  findings: RequirementQualityFinding[],
+  existingArtifacts: WorkshopArtifact[],
+  startIndex: number,
+  messageId: string,
+  createdAt: string,
+) {
+  const existingQuestions = new Set(
+    existingArtifacts
+      .filter((artifact) => artifact.type === "question")
+      .map((artifact) => questionKey(artifact.content)),
+  );
+
+  return findings
+    .filter((finding) => !existingQuestions.has(questionKey(finding.question)))
+    .slice(0, 5)
+    .map<WorkshopArtifact>((finding, index) => {
+      const draft = requirementQualityQuestionDraft(finding);
+
+      return {
+        id: createId(`artifact-quality-${finding.kind}`, startIndex + index),
+        type: draft.type,
+        title: draft.title,
+        content: draft.content,
+        status: "draft" satisfies ArtifactStatus,
+        createdBy: participantIds.quality,
+        updatedAt: createdAt,
+        source: {
+          messageId,
+          artifactId: finding.artifactId,
+          participantId: participantIds.quality,
+        },
+        tags: [...draft.tags, finding.severity].slice(0, 6),
       };
     });
 }
@@ -242,12 +318,66 @@ function readCodexArtifactDraft(draft: unknown) {
   };
 }
 
-function normalizeFacilitatorMessage(message: string) {
-  const trimmed = message.trim();
-  return (
-    trimmed ||
-    "I captured the latest contribution on the canvas. What should we clarify next?"
+function normalizeFacilitatorMessage(
+  message: string,
+  language: WorkshopLanguage,
+  fallbackQuestion?: string,
+) {
+  const sanitized = message.replace(/!+/g, ".").replace(/\s+/g, " ").trim();
+  const question = firstQuestionIn(sanitized);
+  const selectedQuestion =
+    question && detectWorkshopLanguage(question) === language
+      ? question
+      : fallbackQuestion || defaultFacilitatorQuestion(language);
+
+  return `${facilitatorAcknowledgement(language)} ${ensureSingleQuestion(selectedQuestion)}`;
+}
+
+function firstQuestionIn(message: string) {
+  const questionEnd = message.indexOf("?");
+  if (questionEnd < 0) {
+    return undefined;
+  }
+
+  const beforeQuestion = message.slice(0, questionEnd);
+  const sentenceStart = Math.max(
+    beforeQuestion.lastIndexOf("."),
+    beforeQuestion.lastIndexOf("!"),
+    beforeQuestion.lastIndexOf("?"),
   );
+
+  const question = beforeQuestion
+    .slice(sentenceStart + 1)
+    .replace(/^(next question|nästa fråga)\s*:\s*/i, "")
+    .trim();
+
+  return question ? `${question}?` : undefined;
+}
+
+function ensureSingleQuestion(question: string) {
+  const firstQuestion = firstQuestionIn(question) ?? question;
+  return (
+    firstQuestion
+      .replace(/[.!]+$/g, "")
+      .replace(/\?+$/g, "")
+      .trim() + "?"
+  );
+}
+
+function facilitatorAcknowledgement(language: WorkshopLanguage) {
+  return language === "sv"
+    ? "Jag har fångat det senaste på canvasen."
+    : "I captured the latest contribution on the canvas.";
+}
+
+function defaultFacilitatorQuestion(language: WorkshopLanguage) {
+  return language === "sv"
+    ? "Vilken detalj ska vi förtydliga härnäst?"
+    : "What detail should we clarify next?";
+}
+
+function questionKey(question: string) {
+  return question.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 function createCodexLinks(

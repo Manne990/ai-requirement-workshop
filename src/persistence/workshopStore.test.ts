@@ -32,4 +32,24 @@ describe("workshopStore export format", () => {
       parseWorkshopRecordExport(JSON.stringify({ id: "broken" })),
     ).toThrow(/missing session/i);
   });
+
+  it("normalizes legacy imports that do not have prototypes yet", () => {
+    const session = createInitialWorkshopSession(
+      "2026-07-06T08:00:00.000Z",
+      "legacy-workshop",
+    );
+    const { prototypes: _prototypes, ...legacySession } = session;
+
+    const parsed = parseWorkshopRecordExport(
+      JSON.stringify({
+        id: "legacy-workshop",
+        title: "Legacy workshop",
+        createdAt: "2026-07-06T08:00:00.000Z",
+        updatedAt: "2026-07-06T08:00:00.000Z",
+        session: legacySession,
+      }),
+    );
+
+    expect(parsed.session.prototypes).toEqual([]);
+  });
 });

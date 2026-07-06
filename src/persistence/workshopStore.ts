@@ -90,6 +90,7 @@ export function createWorkshopRecord(
       ...session,
       title,
       attachments: session.attachments ?? [],
+      prototypes: session.prototypes ?? [],
     },
     seenInsightIdsByParticipant,
   };
@@ -262,6 +263,7 @@ function normalizeWorkshopRecord(value: unknown): WorkshopRecord {
       attachments: arrayOr(session.attachments),
       artifacts: arrayOr(session.artifacts),
       links: arrayOr(session.links),
+      prototypes: arrayOr(session.prototypes),
       visualizationMode: normalizeVisualizationMode(session.visualizationMode),
       followDiscussion:
         typeof session.followDiscussion === "boolean"
