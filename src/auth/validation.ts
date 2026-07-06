@@ -2,6 +2,7 @@ import type {
   AuthFieldErrors,
   ForgotPasswordInput,
   RegisterInput,
+  ResetPasswordInput,
   SignInInput,
 } from "./types";
 
@@ -63,6 +64,21 @@ export function validateForgotPasswordInput(
     email: normalizeEmail(input.email),
   };
   const fieldErrors = validateEmail(value.email);
+
+  return toValidationResult(value, fieldErrors);
+}
+
+export function validateResetPasswordInput(
+  input: ResetPasswordInput,
+): ValidationResult<ResetPasswordInput> {
+  const value = {
+    password: input.password,
+    recoveryCode: input.recoveryCode,
+    recoveryEmail: input.recoveryEmail
+      ? normalizeEmail(input.recoveryEmail)
+      : undefined,
+  };
+  const fieldErrors = validatePassword(value.password);
 
   return toValidationResult(value, fieldErrors);
 }

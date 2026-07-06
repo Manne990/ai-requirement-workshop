@@ -70,10 +70,15 @@ npm run lint
 npm run typecheck
 npm run test
 npm run build
+npm run test:e2e:install
+npm run test:e2e
 npm run ci
 ```
 
-`npm run ci` runs the full local gate used by GitHub Actions.
+`npm run ci` runs the full local gate used by GitHub Actions, including the
+Playwright smoke in `e2e/`. The E2E test server forces the frontend auth
+adapter and mocks Codex/backup HTTP calls, so the browser tests do not require
+Supabase or Codex secrets.
 
 ## V1 Scope
 

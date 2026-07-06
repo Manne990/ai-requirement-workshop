@@ -87,7 +87,7 @@ describe("organization domain", () => {
       {
         organizationId: "organization-001",
         email: "facilitator@example.com",
-        role: "member",
+        role: "participant",
         invitedByUserId: "user-owner",
         expiresAt: "2026-07-30T08:00:00.000Z",
       },
@@ -99,7 +99,7 @@ describe("organization domain", () => {
       id: "invite-001",
       organizationId: "organization-001",
       email: "facilitator@example.com",
-      role: "member",
+      role: "participant",
       status: "pending",
       invitedByUserId: "user-owner",
       expiresAt: "2026-07-30T08:00:00.000Z",
@@ -151,8 +151,8 @@ describe("organization domain", () => {
       createTestOrganization(),
       {
         organizationId: "organization-001",
-        email: "member@example.com",
-        role: "member",
+        email: "participant@example.com",
+        role: "participant",
         invitedByUserId: "user-owner",
         expiresAt: "2026-07-07T08:00:00.000Z",
       },
@@ -184,8 +184,8 @@ describe("organization domain", () => {
         expired,
         {
           inviteId: "invite-001",
-          userId: "user-member",
-          email: "member@example.com",
+          userId: "user-participant",
+          email: "participant@example.com",
         },
         "2026-07-07T08:01:00.000Z",
       ),
@@ -206,7 +206,7 @@ describe("organization domain", () => {
         invited,
         {
           inviteId: "invite-001",
-          userId: "user-member",
+          userId: "user-participant",
           email: "someone-else@example.com",
         },
         "2026-07-06T08:10:00.000Z",
@@ -216,9 +216,8 @@ describe("organization domain", () => {
 
   it("enforces role-based workshop access by active organization membership", () => {
     const state = withMembers([
-      { userId: "user-admin", role: "admin" },
       { userId: "user-facilitator", role: "facilitator" },
-      { userId: "user-member", role: "member" },
+      { userId: "user-participant", role: "participant" },
       { userId: "user-viewer", role: "viewer" },
     ]);
     const workshop = {
@@ -230,13 +229,18 @@ describe("organization domain", () => {
       canAccessWorkshop(state, "user-owner", workshop, "manage-organization"),
     ).toBe(true);
     expect(
-      canAccessWorkshop(state, "user-admin", workshop, "manage-organization"),
+      canAccessWorkshop(
+        state,
+        "user-facilitator",
+        workshop,
+        "manage-organization",
+      ),
     ).toBe(false);
     expect(
       canAccessWorkshop(state, "user-facilitator", workshop, "edit-workshop"),
     ).toBe(true);
     expect(
-      canAccessWorkshop(state, "user-member", workshop, "edit-workshop"),
+      canAccessWorkshop(state, "user-participant", workshop, "edit-workshop"),
     ).toBe(false);
     expect(
       canAccessWorkshop(state, "user-viewer", workshop, "view-workshop"),
@@ -256,10 +260,10 @@ describe("organization domain", () => {
 
   it("blocks inactive memberships from workshop access", () => {
     const state = updateOrganizationMembershipStatus(
-      withMembers([{ userId: "user-member", role: "member" }]),
+      withMembers([{ userId: "user-participant", role: "participant" }]),
       {
         organizationId: "organization-001",
-        userId: "user-member",
+        userId: "user-participant",
         status: "suspended",
         updatedByUserId: "user-owner",
       },
@@ -269,39 +273,41 @@ describe("organization domain", () => {
     expect(
       checkOrganizationAccess(
         state,
-        "user-member",
+        "user-participant",
         "organization-001",
         "view-workshop",
       ),
     ).toMatchObject({
       allowed: false,
       reason: "membership-inactive",
-      role: "member",
+      role: "participant",
     });
   });
 
   it("limits role grants and keeps at least one active owner", () => {
-    const withAdmin = withMembers([{ userId: "user-admin", role: "admin" }]);
+    const withFacilitator = withMembers([
+      { userId: "user-facilitator", role: "facilitator" },
+    ]);
 
     expect(() =>
       inviteOrganizationMember(
-        withAdmin,
+        withFacilitator,
         {
           organizationId: "organization-001",
-          email: "admin-two@example.com",
-          role: "admin",
-          invitedByUserId: "user-admin",
+          email: "facilitator-two@example.com",
+          role: "facilitator",
+          invitedByUserId: "user-facilitator",
         },
         createdAt,
       ),
     ).toThrowError("User cannot grant that organization role.");
     expect(() =>
       updateOrganizationMembershipRole(
-        withAdmin,
+        withFacilitator,
         {
           organizationId: "organization-001",
           userId: "user-owner",
-          role: "admin",
+          role: "facilitator",
           updatedByUserId: "user-owner",
         },
         "2026-07-06T08:10:00.000Z",
@@ -309,7 +315,7 @@ describe("organization domain", () => {
     ).toThrowError("Organization must keep at least one active owner.");
     expect(() =>
       updateOrganizationMembershipStatus(
-        withAdmin,
+        withFacilitator,
         {
           organizationId: "organization-001",
           userId: "user-owner",
@@ -321,9 +327,9 @@ describe("organization domain", () => {
     ).toThrowError("Organization must keep at least one active owner.");
 
     const withSecondOwner = {
-      ...withAdmin,
+      ...withFacilitator,
       memberships: [
-        ...withAdmin.memberships,
+        ...withFacilitator.memberships,
         {
           id: "membership-003",
           organizationId: "organization-001",
@@ -342,12 +348,53 @@ describe("organization domain", () => {
         {
           organizationId: "organization-001",
           userId: "user-owner-two",
-          role: "member",
-          updatedByUserId: "user-admin",
+          role: "participant",
+          updatedByUserId: "user-facilitator",
         },
         "2026-07-06T08:10:00.000Z",
       ),
-    ).toThrowError("User cannot manage that organization membership.");
+    ).toThrowError("User lacks organization permission.");
+  });
+
+  it("accepts invites through a token hash without exposing a raw token", () => {
+    const invited = inviteOrganizationMember(
+      createTestOrganization(),
+      {
+        organizationId: "organization-001",
+        email: "participant@example.com",
+        tokenHash: "sha256:invite-token-001",
+        role: "participant",
+        invitedByUserId: "user-owner",
+      },
+      createdAt,
+    );
+
+    expect(invited.invites[0]).toMatchObject({
+      tokenHash: "sha256:invite-token-001",
+      status: "pending",
+    });
+
+    const accepted = acceptOrganizationInvite(
+      invited,
+      {
+        tokenHash: "sha256:invite-token-001",
+        userId: "user-participant",
+        email: "participant@example.com",
+      },
+      "2026-07-06T09:00:00.000Z",
+    );
+
+    expect(accepted.invites[0]).toMatchObject({
+      status: "accepted",
+      acceptedByUserId: "user-participant",
+    });
+    expect(accepted.memberships).toContainEqual(
+      expect.objectContaining({
+        userId: "user-participant",
+        role: "participant",
+        status: "active",
+      }),
+    );
   });
 });
 
@@ -365,7 +412,7 @@ function createTestOrganization() {
 function withMembers(
   members: {
     userId: string;
-    role: "admin" | "facilitator" | "member" | "viewer";
+    role: "facilitator" | "participant" | "viewer";
   }[],
 ): OrganizationState {
   const organization = createTestOrganization();

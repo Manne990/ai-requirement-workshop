@@ -1,7 +1,7 @@
 export type OrganizationStatus = "active" | "archived";
 
 export type OrganizationRole =
-  "owner" | "admin" | "facilitator" | "member" | "viewer";
+  "owner" | "facilitator" | "participant" | "viewer";
 
 export type OrganizationMembershipStatus = "active" | "suspended" | "removed";
 
@@ -42,6 +42,7 @@ export type OrganizationInvite = {
   id: string;
   organizationId: string;
   email: string;
+  tokenHash: string;
   role: OrganizationRole;
   status: OrganizationInviteStatus;
   invitedByUserId: string;
@@ -72,13 +73,15 @@ export type CreateOrganizationInviteDraft = {
   id?: string;
   organizationId: string;
   email: string;
+  tokenHash?: string;
   role: OrganizationRole;
   invitedByUserId: string;
   expiresAt?: string;
 };
 
 export type AcceptOrganizationInviteDraft = {
-  inviteId: string;
+  inviteId?: string;
+  tokenHash?: string;
   userId: string;
   email: string;
 };
@@ -126,9 +129,8 @@ export const emptyOrganizationState: OrganizationState = {
 
 export const organizationRoles: OrganizationRole[] = [
   "owner",
-  "admin",
   "facilitator",
-  "member",
+  "participant",
   "viewer",
 ];
 
@@ -146,40 +148,30 @@ export const organizationPermissionsByRole: Record<
     "manage-members",
     "manage-organization",
   ],
-  admin: [
-    "view-workshop",
-    "comment-workshop",
-    "create-workshop",
-    "edit-workshop",
-    "facilitate-workshop",
-    "invite-members",
-    "manage-members",
-  ],
   facilitator: [
     "view-workshop",
     "comment-workshop",
     "create-workshop",
     "edit-workshop",
     "facilitate-workshop",
+    "invite-members",
   ],
-  member: ["view-workshop", "comment-workshop", "create-workshop"],
+  participant: ["view-workshop", "comment-workshop", "create-workshop"],
   viewer: ["view-workshop"],
 };
 
 const grantableRolesByRole: Record<OrganizationRole, OrganizationRole[]> = {
   owner: organizationRoles,
-  admin: ["facilitator", "member", "viewer"],
-  facilitator: [],
-  member: [],
+  facilitator: ["participant", "viewer"],
+  participant: [],
   viewer: [],
 };
 
 const roleRank: Record<OrganizationRole, number> = {
   viewer: 1,
-  member: 2,
+  participant: 2,
   facilitator: 3,
-  admin: 4,
-  owner: 5,
+  owner: 4,
 };
 
 const now = () => new Date().toISOString();
@@ -253,6 +245,7 @@ export function inviteOrganizationMember(
         invite.id === existingInvite.id
           ? {
               ...invite,
+              tokenHash: draft.tokenHash ?? invite.tokenHash,
               role: draft.role,
               invitedByUserId: draft.invitedByUserId,
               expiresAt,
@@ -267,6 +260,8 @@ export function inviteOrganizationMember(
     id: draft.id ?? createId("invite", state.invites.length + 1),
     organizationId: draft.organizationId,
     email,
+    tokenHash:
+      draft.tokenHash ?? createId("invite-token", state.invites.length + 1),
     role: draft.role,
     status: "pending",
     invitedByUserId: draft.invitedByUserId,
@@ -286,7 +281,11 @@ export function acceptOrganizationInvite(
   draft: AcceptOrganizationInviteDraft,
   acceptedAt = now(),
 ): OrganizationState {
-  const invite = state.invites.find((item) => item.id === draft.inviteId);
+  const invite = state.invites.find((item) =>
+    draft.inviteId
+      ? item.id === draft.inviteId
+      : item.tokenHash === draft.tokenHash,
+  );
 
   if (!invite) {
     throw new Error("Organization invite not found.");

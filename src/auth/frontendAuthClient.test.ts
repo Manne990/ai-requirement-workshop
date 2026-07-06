@@ -53,4 +53,27 @@ describe("createFrontendAuthClient", () => {
       email: "reset@example.com",
     });
   });
+
+  it("completes password reset with a token-free fallback session", async () => {
+    const client = createFrontendAuthClient({
+      now: () => "2026-07-06T10:00:00.000Z",
+    });
+
+    const result = await client.completePasswordReset({
+      password: "new-stable-passphrase",
+      recoveryEmail: " ResetUser@example.COM ",
+    });
+
+    expect(result.session).toMatchObject({
+      establishedAt: "2026-07-06T10:00:00.000Z",
+      assurance: "frontend-only",
+      user: {
+        id: "auth-user:resetuser@example.com",
+        email: "resetuser@example.com",
+        displayName: "resetuser",
+      },
+    });
+    expect(isTokenFreeSession(result.session!)).toBe(true);
+    expect(JSON.stringify(result)).not.toContain("new-stable-passphrase");
+  });
 });

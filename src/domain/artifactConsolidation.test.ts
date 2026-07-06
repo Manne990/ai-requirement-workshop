@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyArtifactConsolidationSuggestion,
   mergeArtifactsIntoRequirement,
   splitArtifactIntoRequirements,
   suggestArtifactConsolidations,
@@ -200,6 +201,76 @@ describe("artifact consolidation", () => {
         },
       ]),
     ).toThrow(/must be draft/);
+  });
+
+  it("applies a pending merge suggestion into approved first-class requirements", () => {
+    const first = draftArtifact({
+      id: "artifact-requirement-1",
+      title: "Alarm overview",
+      content: "Dashboard should show active customer alarms.",
+    });
+    const second = draftArtifact({
+      id: "artifact-requirement-2",
+      title: "Customer alarm list",
+      content: "The dashboard must display active alarms for each customer.",
+    });
+    const session = sessionWithArtifacts([first, second]);
+    const suggestion = suggestArtifactConsolidations([first, second]).find(
+      (candidate) => candidate.kind === "merge",
+    );
+
+    if (!suggestion) {
+      throw new Error("Expected merge suggestion fixture.");
+    }
+
+    const result = applyArtifactConsolidationSuggestion(
+      session,
+      [],
+      {
+        ...suggestion,
+        proposedRequirements: [
+          {
+            title: "Customer alarm overview",
+            content:
+              "The dashboard must show active customer alarms in one overview.",
+          },
+        ],
+      },
+      {
+        actorId: participantIds.human,
+        at: updatedAt,
+        approve: true,
+        acceptanceCriteria: [
+          "The overview lists active alarms for every selected customer.",
+        ],
+        rationale: "Human approved the merged requirement candidate.",
+      },
+    );
+
+    expect(result.session.artifacts.at(-1)).toMatchObject({
+      type: "requirement",
+      status: "accepted",
+      tags: expect.arrayContaining(["consolidated", "merged"]),
+    });
+    expect(result.createdRequirements).toEqual([
+      expect.objectContaining({
+        title: "Customer alarm overview",
+        state: "approved",
+        approvedBy: participantIds.human,
+      }),
+    ]);
+    expect(
+      result.createdRequirements[0]?.sourceRefs.map(
+        (source) => source.artifactId,
+      ),
+    ).toEqual([
+      "artifact-requirement-3",
+      "artifact-requirement-1",
+      "artifact-requirement-2",
+    ]);
+    expect(
+      result.createdRequirements[0]?.history.map((entry) => entry.action),
+    ).toEqual(["created", "edited", "approved"]);
   });
 });
 

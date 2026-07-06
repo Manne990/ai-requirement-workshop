@@ -5,6 +5,8 @@ export type RequirementState =
 
 export type RequirementHistoryAction =
   | "created"
+  | "merged"
+  | "split"
   | "promoted"
   | "approved"
   | "rejected"
@@ -32,7 +34,8 @@ export type RequirementHistoryChange = {
     | "acceptanceCriteria"
     | "rationale"
     | "sourceRefs"
-    | "supersededByRequirementId";
+    | "supersededByRequirementId"
+    | "supersededByRequirementIds";
   before?: unknown;
   after?: unknown;
 };
@@ -68,6 +71,7 @@ export type Requirement = {
   baselinedAt?: string;
   baselinedBy?: string;
   supersededByRequirementId?: string;
+  supersededByRequirementIds?: string[];
   history: RequirementHistoryEntry[];
 };
 
@@ -100,6 +104,24 @@ export type RequirementRevision = {
   sourceRefs?: RequirementSourceRef[];
 };
 
+export type RequirementConsolidationInput = {
+  id: string;
+  title: string;
+  statement: string;
+  state?: "candidate" | "approved";
+  acceptanceCriteria?: RequirementAcceptanceCriterionInput[];
+  rationale?: string;
+  sourceRefs?: RequirementSourceRef[];
+};
+
+export type RequirementSplitInput = RequirementConsolidationInput;
+
+export type RequirementConsolidationResult = {
+  requirements: Requirement[];
+  createdRequirements: Requirement[];
+  supersededRequirements: Requirement[];
+};
+
 export type RequirementArtifactDerivationOptions = {
   actorId?: string;
   at?: string;
@@ -115,8 +137,8 @@ export type RequirementBacklogDerivation = {
 };
 
 export const requirementTransitions = {
-  draft: ["candidate", "rejected"],
-  candidate: ["approved", "rejected"],
+  draft: ["candidate", "rejected", "superseded"],
+  candidate: ["approved", "rejected", "superseded"],
   approved: ["candidate", "baselined", "superseded"],
   rejected: ["candidate"],
   baselined: ["superseded"],
@@ -127,7 +149,24 @@ const systemActorId = "system";
 
 const now = () => new Date().toISOString();
 
+function defaultCreateRationale(action: "created" | "merged" | "split") {
+  if (action === "merged") {
+    return "Requirement created by merging reviewed requirement material.";
+  }
+  if (action === "split") {
+    return "Requirement created by splitting broad requirement material.";
+  }
+  return "Requirement created.";
+}
+
 export function createRequirement(input: RequirementCreateInput): Requirement {
+  return createRequirementWithHistoryAction(input, "created");
+}
+
+function createRequirementWithHistoryAction(
+  input: RequirementCreateInput,
+  historyAction: "created" | "merged" | "split",
+): Requirement {
   const state = input.state ?? "draft";
   const title = assertNonEmpty(input.title, "Requirement title");
   const statement = assertNonEmpty(input.statement, "Requirement statement");
@@ -154,10 +193,10 @@ export function createRequirement(input: RequirementCreateInput): Requirement {
   return {
     ...requirement,
     history: [
-      createHistoryEntry(requirement, "created", state, {
+      createHistoryEntry(requirement, historyAction, state, {
         actorId: input.createdBy,
         at: input.createdAt,
-        rationale: rationale || "Requirement created.",
+        rationale: rationale || defaultCreateRationale(historyAction),
       }),
     ],
   };
@@ -256,6 +295,86 @@ export function validRequirementTransitions(
   state: RequirementState,
 ): readonly RequirementState[] {
   return requirementTransitions[state];
+}
+
+export function mergeRequirements(
+  requirements: Requirement[],
+  sourceRequirementIds: string[],
+  input: RequirementConsolidationInput,
+  command: RequirementLifecycleCommand,
+): RequirementConsolidationResult {
+  const sources = readConsolidationSources(
+    requirements,
+    sourceRequirementIds,
+    2,
+  );
+  const replacement = createReplacementRequirement(
+    "merged",
+    input,
+    sources,
+    command,
+    "Merged from reviewed requirement candidates.",
+  );
+  const supersededRequirements = sources.map((source) =>
+    supersedeRequirementByMany(source, [replacement.id], command),
+  );
+
+  return {
+    requirements: replaceRequirements(
+      requirements,
+      supersededRequirements,
+    ).concat(replacement),
+    createdRequirements: [replacement],
+    supersededRequirements,
+  };
+}
+
+export function splitRequirement(
+  requirements: Requirement[],
+  sourceRequirementId: string,
+  inputs: RequirementSplitInput[],
+  command: RequirementLifecycleCommand,
+): RequirementConsolidationResult {
+  const [source] = readConsolidationSources(
+    requirements,
+    [sourceRequirementId],
+    1,
+  );
+  if (!source) {
+    throw new Error(`Requirement ${sourceRequirementId} could not be found.`);
+  }
+
+  const createdRequirements = inputs.map((input) =>
+    createReplacementRequirement(
+      "split",
+      input,
+      [source],
+      command,
+      "Split from a broad requirement candidate.",
+    ),
+  );
+  if (createdRequirements.length < 2) {
+    throw new Error(
+      "Splitting a requirement requires at least two replacements.",
+    );
+  }
+
+  const supersededRequirements = [
+    supersedeRequirementByMany(
+      source,
+      createdRequirements.map((requirement) => requirement.id),
+      command,
+    ),
+  ];
+
+  return {
+    requirements: replaceRequirements(
+      requirements,
+      supersededRequirements,
+    ).concat(createdRequirements),
+    createdRequirements,
+    supersededRequirements,
+  };
 }
 
 export function canTransitionRequirement(
@@ -381,8 +500,16 @@ export function supersedeRequirement(
         before: requirement.supersededByRequirementId,
         after: replacementId,
       },
+      {
+        field: "supersededByRequirementIds",
+        before: requirement.supersededByRequirementIds,
+        after: [replacementId],
+      },
     ],
-    { supersededByRequirementId: replacementId },
+    {
+      supersededByRequirementId: replacementId,
+      supersededByRequirementIds: [replacementId],
+    },
   );
 }
 
@@ -455,6 +582,151 @@ export function reviseRequirement(
       ),
     ],
   };
+}
+
+function createReplacementRequirement(
+  action: "merged" | "split",
+  input: RequirementConsolidationInput,
+  sources: Requirement[],
+  command: RequirementLifecycleCommand,
+  defaultRationale: string,
+): Requirement {
+  assertCommandRationale(command, `${action} requirement`);
+  const targetState = input.state ?? "candidate";
+  const sourceRefs = mergeSourceRefs(
+    sources.flatMap((source) => source.sourceRefs),
+    input.sourceRefs ?? [],
+  );
+  const created = createRequirementWithHistoryAction(
+    {
+      id: assertNonEmpty(input.id, "Requirement id"),
+      title: input.title,
+      statement: input.statement,
+      state: "candidate",
+      createdAt: command.at ?? now(),
+      createdBy: command.actorId,
+      acceptanceCriteria: input.acceptanceCriteria ?? mergedCriteria(sources),
+      rationale: input.rationale ?? defaultRationale,
+      sourceRefs,
+    },
+    action,
+  );
+
+  if (targetState === "candidate") {
+    return created;
+  }
+
+  return approveRequirement(created, {
+    ...command,
+    rationale: command.rationale,
+  });
+}
+
+function readConsolidationSources(
+  requirements: Requirement[],
+  sourceRequirementIds: string[],
+  minimumCount: number,
+) {
+  const uniqueIds = [
+    ...new Set(
+      sourceRequirementIds.map((requirementId) => requirementId.trim()),
+    ),
+  ].filter(Boolean);
+  if (uniqueIds.length < minimumCount) {
+    throw new Error(
+      `Expected at least ${minimumCount} source requirement${
+        minimumCount === 1 ? "" : "s"
+      }.`,
+    );
+  }
+
+  return uniqueIds.map((requirementId) => {
+    const requirement = requirements.find(
+      (candidate) => candidate.id === requirementId,
+    );
+    if (!requirement) {
+      throw new Error(`Requirement ${requirementId} could not be found.`);
+    }
+    if (
+      requirement.state === "rejected" ||
+      requirement.state === "superseded"
+    ) {
+      throw new Error(
+        `Requirement ${requirementId} cannot be consolidated from ${requirement.state}.`,
+      );
+    }
+    return requirement;
+  });
+}
+
+function supersedeRequirementByMany(
+  requirement: Requirement,
+  replacementIds: string[],
+  command: RequirementLifecycleCommand,
+) {
+  const uniqueReplacementIds = [
+    ...new Set(
+      replacementIds.map((requirementId) =>
+        assertNonEmpty(requirementId, "Superseding requirement id"),
+      ),
+    ),
+  ];
+  if (uniqueReplacementIds.includes(requirement.id)) {
+    throw new Error("A requirement cannot supersede itself.");
+  }
+  assertCommandRationale(command, "Superseding a requirement");
+
+  const primaryReplacementId = uniqueReplacementIds[0];
+  if (!primaryReplacementId) {
+    throw new Error("Superseding a requirement requires a replacement.");
+  }
+
+  return transitionRequirement(
+    requirement,
+    "superseded",
+    "superseded",
+    command,
+    [
+      {
+        field: "supersededByRequirementId",
+        before: requirement.supersededByRequirementId,
+        after: primaryReplacementId,
+      },
+      {
+        field: "supersededByRequirementIds",
+        before: requirement.supersededByRequirementIds,
+        after: uniqueReplacementIds,
+      },
+    ],
+    {
+      supersededByRequirementId: primaryReplacementId,
+      supersededByRequirementIds: uniqueReplacementIds,
+    },
+  );
+}
+
+function replaceRequirements(
+  requirements: Requirement[],
+  replacements: Requirement[],
+) {
+  const byId = new Map(
+    replacements.map((requirement) => [requirement.id, requirement]),
+  );
+
+  return requirements.map(
+    (requirement) => byId.get(requirement.id) ?? requirement,
+  );
+}
+
+function mergedCriteria(
+  sources: Requirement[],
+): RequirementAcceptanceCriterionInput[] {
+  return sources.flatMap((source) =>
+    source.acceptanceCriteria.map((criterion) => ({
+      id: `${source.id}-${criterion.id}`,
+      text: criterion.text,
+    })),
+  );
 }
 
 function transitionRequirement(

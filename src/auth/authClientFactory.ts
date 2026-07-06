@@ -16,6 +16,10 @@ export function createConfiguredAuthClient(
       supabaseAnonKey: supabaseAnonKey!,
       redirectTo:
         typeof window === "undefined" ? undefined : window.location.origin,
+      passwordResetRedirectTo:
+        typeof window === "undefined"
+          ? undefined
+          : `${window.location.origin}?auth=reset-password`,
     });
   }
 
@@ -26,10 +30,12 @@ function createLazySupabaseAuthClient({
   supabaseUrl,
   supabaseAnonKey,
   redirectTo,
+  passwordResetRedirectTo,
 }: {
   supabaseUrl: string;
   supabaseAnonKey: string;
   redirectTo?: string;
+  passwordResetRedirectTo?: string;
 }): AuthClient {
   let authClientPromise: Promise<AuthClient> | null = null;
   const authClient = async () => {
@@ -38,6 +44,7 @@ function createLazySupabaseAuthClient({
         createSupabaseAuthClient({
           supabase: createClient(supabaseUrl, supabaseAnonKey),
           redirectTo,
+          passwordResetRedirectTo,
         }),
     );
     return authClientPromise;
@@ -58,6 +65,9 @@ function createLazySupabaseAuthClient({
     },
     async requestPasswordReset(input) {
       return (await authClient()).requestPasswordReset(input);
+    },
+    async completePasswordReset(input) {
+      return (await authClient()).completePasswordReset(input);
     },
   };
 }

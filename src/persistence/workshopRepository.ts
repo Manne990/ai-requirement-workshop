@@ -7,6 +7,10 @@ import {
   type WorkshopRecord,
   type WorkshopSummary,
 } from "./workshopStore";
+import {
+  createSupabaseWorkshopRecordStore,
+  isConfiguredSupabaseWorkshopStore,
+} from "./supabaseWorkshopStore";
 
 export type WorkshopRecordStore = {
   listSummaries: () => Promise<WorkshopSummary[]>;
@@ -52,6 +56,8 @@ export const localActiveWorkshopStore: ActiveWorkshopStore = {
 };
 
 export const workshopRepository = createWorkshopRepository({
-  recordStore: localWorkshopRecordStore,
+  recordStore: isConfiguredSupabaseWorkshopStore()
+    ? createSupabaseWorkshopRecordStore()
+    : localWorkshopRecordStore,
   activeWorkshopStore: localActiveWorkshopStore,
 });

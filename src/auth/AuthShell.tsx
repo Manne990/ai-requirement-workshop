@@ -15,6 +15,7 @@ import { useAuth } from "./useAuth";
 import {
   validateForgotPasswordInput,
   validateRegisterInput,
+  validateResetPasswordInput,
   validateSignInInput,
 } from "./validation";
 
@@ -34,11 +35,13 @@ const modeLabels: Record<AuthMode, string> = {
   signIn: "Sign in",
   register: "Register",
   forgotPassword: "Forgot password",
+  resetPassword: "Set new password",
 };
 
 export function AuthShell() {
   const { session, isLoading, activeOperation, signOut } = useAuth();
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [resetContinuation] = useState(() => getPasswordResetContinuation());
+  const [isDialogOpen, setIsDialogOpen] = useState(resetContinuation.isActive);
   const displayName = session?.user.displayName ?? "Account";
 
   if (session) {
@@ -74,13 +77,22 @@ export function AuthShell() {
       </button>
 
       {isDialogOpen ? (
-        <AuthDialog onClose={() => setIsDialogOpen(false)} />
+        <AuthDialog
+          resetContinuation={resetContinuation}
+          onClose={() => setIsDialogOpen(false)}
+        />
       ) : null}
     </>
   );
 }
 
-function AuthDialog({ onClose }: { onClose: () => void }) {
+function AuthDialog({
+  resetContinuation,
+  onClose,
+}: {
+  resetContinuation: PasswordResetContinuation;
+  onClose: () => void;
+}) {
   const {
     activeOperation,
     error,
@@ -88,9 +100,12 @@ function AuthDialog({ onClose }: { onClose: () => void }) {
     signIn,
     register,
     requestPasswordReset,
+    completePasswordReset,
     clearAuthMessage,
   } = useAuth();
-  const [mode, setMode] = useState<AuthMode>("signIn");
+  const [mode, setMode] = useState<AuthMode>(
+    resetContinuation.isActive ? "resetPassword" : "signIn",
+  );
   const [formState, setFormState] = useState<AuthFormState>(initialFormState);
   const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors>({});
   const isSubmitting = activeOperation === modeToOperation(mode);
@@ -98,6 +113,10 @@ function AuthDialog({ onClose }: { onClose: () => void }) {
   const submitLabel = useMemo(() => {
     if (isSubmitting) {
       return mode === "forgotPassword" ? "Sending" : "Submitting";
+    }
+
+    if (mode === "resetPassword") {
+      return "Update password";
     }
 
     return modeLabels[mode];
@@ -139,6 +158,28 @@ function AuthDialog({ onClose }: { onClose: () => void }) {
 
       try {
         const result = await register(validation.value);
+        if (result.session) {
+          onClose();
+        }
+      } catch {
+        return;
+      }
+      return;
+    }
+
+    if (mode === "resetPassword") {
+      const validation = validateResetPasswordInput({
+        password: formState.password,
+        recoveryCode: resetContinuation.recoveryCode,
+        recoveryEmail: resetContinuation.recoveryEmail,
+      });
+      setFieldErrors(validation.fieldErrors);
+      if (!validation.ok) {
+        return;
+      }
+
+      try {
+        const result = await completePasswordReset(validation.value);
         if (result.session) {
           onClose();
         }
@@ -211,6 +252,17 @@ function AuthDialog({ onClose }: { onClose: () => void }) {
           <KeyRound aria-hidden="true" size={16} />
           Reset
         </button>
+        {resetContinuation.isActive ? (
+          <button
+            type="button"
+            className={mode === "resetPassword" ? "active" : ""}
+            aria-pressed={mode === "resetPassword"}
+            onClick={() => handleModeChange("resetPassword")}
+          >
+            <KeyRound aria-hidden="true" size={16} />
+            Set password
+          </button>
+        ) : null}
       </div>
 
       <form className="auth-form" onSubmit={handleSubmit}>
@@ -235,22 +287,24 @@ function AuthDialog({ onClose }: { onClose: () => void }) {
           </label>
         ) : null}
 
-        <label>
-          <span>Email</span>
-          <input
-            type="email"
-            autoComplete="email"
-            value={formState.email}
-            aria-invalid={Boolean(fieldErrors.email)}
-            onChange={(event) =>
-              setFormState((current) => ({
-                ...current,
-                email: event.target.value,
-              }))
-            }
-          />
-          {fieldErrors.email ? <small>{fieldErrors.email}</small> : null}
-        </label>
+        {mode !== "resetPassword" ? (
+          <label>
+            <span>Email</span>
+            <input
+              type="email"
+              autoComplete="email"
+              value={formState.email}
+              aria-invalid={Boolean(fieldErrors.email)}
+              onChange={(event) =>
+                setFormState((current) => ({
+                  ...current,
+                  email: event.target.value,
+                }))
+              }
+            />
+            {fieldErrors.email ? <small>{fieldErrors.email}</small> : null}
+          </label>
+        ) : null}
 
         {mode !== "forgotPassword" ? (
           <label>
@@ -258,7 +312,7 @@ function AuthDialog({ onClose }: { onClose: () => void }) {
             <input
               type="password"
               autoComplete={
-                mode === "register" ? "new-password" : "current-password"
+                mode === "signIn" ? "current-password" : "new-password"
               }
               value={formState.password}
               aria-invalid={Boolean(fieldErrors.password)}
@@ -298,4 +352,35 @@ function AuthDialog({ onClose }: { onClose: () => void }) {
 
 function modeToOperation(mode: AuthMode) {
   return mode === "forgotPassword" ? "forgotPassword" : mode;
+}
+
+type PasswordResetContinuation = {
+  isActive: boolean;
+  recoveryCode?: string;
+  recoveryEmail?: string;
+};
+
+function getPasswordResetContinuation(): PasswordResetContinuation {
+  if (typeof window === "undefined") {
+    return { isActive: false };
+  }
+
+  const queryParams = new URLSearchParams(window.location.search);
+  const hashParams = new URLSearchParams(
+    window.location.hash.replace(/^#/, ""),
+  );
+  const authIntent = queryParams.get("auth") ?? hashParams.get("auth");
+  const recoveryType = queryParams.get("type") ?? hashParams.get("type");
+  const recoveryCode = queryParams.get("code") ?? hashParams.get("code");
+  const recoveryEmail = queryParams.get("email") ?? hashParams.get("email");
+  const isActive =
+    authIntent === "reset-password" ||
+    recoveryType === "recovery" ||
+    Boolean(recoveryCode);
+
+  return {
+    isActive,
+    recoveryCode: recoveryCode ?? undefined,
+    recoveryEmail: recoveryEmail ?? undefined,
+  };
 }

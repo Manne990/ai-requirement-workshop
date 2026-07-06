@@ -62,7 +62,7 @@
 
 .auth-mode-control {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
   gap: 6px;
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 8px;
@@ -154,6 +154,41 @@
   font-weight: 780;
 }
 
+.auth-gate-shell {
+  background: var(--color-bg);
+}
+
+.auth-gate-panel {
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+
+.auth-gate-panel > div {
+  width: min(560px, 100%);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 28px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.auth-gate-panel h2 {
+  margin: 0 0 10px;
+  color: var(--color-heading);
+  font-size: 1.35rem;
+}
+
+.auth-gate-panel p {
+  margin: 0;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.auth-gate-panel p + p {
+  margin-top: 10px;
+}
+
 @media (max-width: 600px) {
   .auth-account {
     width: 100%;
@@ -173,5 +208,9 @@
 
   .auth-mode-control {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .auth-gate-panel {
+    padding: 16px;
   }
 }

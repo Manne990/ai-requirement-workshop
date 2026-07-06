@@ -4,17 +4,25 @@ This directory contains the first production schema foundation for AI Requiremen
 
 ## Included
 
-- Organization, membership, workshop, message, artifact, requirement, approval, prototype, attachment, audit, and read-state tables.
+- Organization, membership, organization invite, workshop, message, artifact, requirement, approval, prototype, attachment, audit, and read-state tables.
 - Row Level Security enabled for every production table.
 - Membership-based policies for organization and workshop isolation.
-- Helper functions for organization/workshop membership and edit checks.
+- Helper functions for organization/workshop membership and edit checks using owner, facilitator, participant, and viewer roles.
 
 ## Not Yet Proven
 
 - The migration has not been applied to a real Supabase project in this repository.
 - RLS policies are text-verified in CI, not database-executed yet.
 - Storage bucket policies for attachment objects still need an applied Supabase environment.
-- Realtime publication and conflict reconciliation are not configured yet.
+- Realtime publication is not configured in the database migration yet.
+
+## Realtime Foundation
+
+The application code includes a Supabase Realtime adapter boundary in
+`src/persistence/realtimeWorkshopChannel.ts` and pure conflict handling in
+`src/domain/collaboration.ts`. That foundation covers broadcast workshop events,
+presence snapshots, local in-memory fallback for tests, and stale artifact-status
+conflict detection. It does not require service-role keys or committed secrets.
 
 ## Verification
 

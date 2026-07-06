@@ -21,6 +21,8 @@ describe("createSupabaseAuthClient", () => {
           signUp: vi.fn(),
           signOut: vi.fn(),
           resetPasswordForEmail: vi.fn(),
+          exchangeCodeForSession: vi.fn(),
+          updateUser: vi.fn(),
         },
       },
       now: () => "2026-07-06T09:00:00.000Z",
@@ -61,6 +63,8 @@ describe("createSupabaseAuthClient", () => {
           signUp,
           signOut: vi.fn(),
           resetPasswordForEmail: vi.fn(),
+          exchangeCodeForSession: vi.fn(),
+          updateUser: vi.fn(),
         },
       },
       redirectTo: "https://workshop.example",
@@ -99,6 +103,8 @@ describe("createSupabaseAuthClient", () => {
           signUp: vi.fn(),
           signOut: vi.fn(),
           resetPasswordForEmail,
+          exchangeCodeForSession: vi.fn(),
+          updateUser: vi.fn(),
         },
       },
       redirectTo: "https://workshop.example",
@@ -112,6 +118,61 @@ describe("createSupabaseAuthClient", () => {
     });
     expect(resetPasswordForEmail).toHaveBeenCalledWith("reset@example.com", {
       redirectTo: "https://workshop.example",
+    });
+  });
+
+  it("exchanges a recovery code and updates the password through Supabase", async () => {
+    const session = createSession({
+      userId: "reset-user-123",
+      email: "reset@example.com",
+      displayName: "Reset Owner",
+    });
+    const exchangeCodeForSession = vi.fn(async () => ({
+      data: { user: session.user, session },
+      error: null,
+    }));
+    const updateUser = vi.fn(async () => ({
+      data: { user: session.user },
+      error: null,
+    }));
+    const getSession = vi.fn(async () => ({
+      data: { session },
+      error: null,
+    }));
+    const client = createSupabaseAuthClient({
+      supabase: {
+        auth: {
+          getSession,
+          signInWithPassword: vi.fn(),
+          signUp: vi.fn(),
+          signOut: vi.fn(),
+          resetPasswordForEmail: vi.fn(),
+          exchangeCodeForSession,
+          updateUser,
+        },
+      },
+      now: () => "2026-07-06T10:30:00.000Z",
+    });
+
+    await expect(
+      client.completePasswordReset({
+        password: "updated-passphrase",
+        recoveryCode: "recovery-code-123",
+      }),
+    ).resolves.toMatchObject({
+      session: {
+        establishedAt: "2026-07-06T10:30:00.000Z",
+        assurance: "server-authenticated",
+        user: {
+          id: "reset-user-123",
+          email: "reset@example.com",
+          displayName: "Reset Owner",
+        },
+      },
+    });
+    expect(exchangeCodeForSession).toHaveBeenCalledWith("recovery-code-123");
+    expect(updateUser).toHaveBeenCalledWith({
+      password: "updated-passphrase",
     });
   });
 });

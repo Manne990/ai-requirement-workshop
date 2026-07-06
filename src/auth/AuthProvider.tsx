@@ -13,6 +13,7 @@ import type {
   AuthSession,
   ForgotPasswordInput,
   RegisterInput,
+  ResetPasswordInput,
   SignInInput,
 } from "./types";
 
@@ -155,6 +156,27 @@ export function AuthProvider({
     [clearAuthMessage, client],
   );
 
+  const completePasswordReset = useCallback(
+    async (input: ResetPasswordInput) => {
+      setActiveOperation("resetPassword");
+      clearAuthMessage();
+
+      try {
+        const result = await client.completePasswordReset(input);
+        setSession(result.session);
+        setNotice(result.message);
+        return result;
+      } catch (resetError) {
+        const message = authErrorMessage(resetError);
+        setError(message);
+        throw new Error(message);
+      } finally {
+        setActiveOperation(null);
+      }
+    },
+    [clearAuthMessage, client],
+  );
+
   const value = useMemo<AuthContextValue>(
     () => ({
       session,
@@ -166,11 +188,13 @@ export function AuthProvider({
       register,
       signOut,
       requestPasswordReset,
+      completePasswordReset,
       clearAuthMessage,
     }),
     [
       activeOperation,
       clearAuthMessage,
+      completePasswordReset,
       error,
       isLoading,
       notice,

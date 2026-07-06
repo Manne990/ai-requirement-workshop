@@ -10,8 +10,10 @@
     "format": "prettier --check .",
     "format:write": "prettier --write .",
     "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium",
     "typecheck": "tsc -b --pretty false",
-    "ci": "npm run format && npm run lint && npm run typecheck && npm run test && npm run build",
+    "ci": "npm run format && npm run lint && npm run typecheck && npm run test && npm run build && npm run test:e2e:install && npm run test:e2e",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -24,6 +26,7 @@
     "read-excel-file": "^9.2.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^24.13.2",

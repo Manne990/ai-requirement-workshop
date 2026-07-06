@@ -1,7 +1,13 @@
-export type AuthMode = "signIn" | "register" | "forgotPassword";
+export type AuthMode =
+  "signIn" | "register" | "forgotPassword" | "resetPassword";
 
 export type AuthOperation =
-  "restoreSession" | "signIn" | "register" | "signOut" | "forgotPassword";
+  | "restoreSession"
+  | "signIn"
+  | "register"
+  | "signOut"
+  | "forgotPassword"
+  | "resetPassword";
 
 export type AuthUser = {
   id: string;
@@ -30,6 +36,12 @@ export type ForgotPasswordInput = {
   email: string;
 };
 
+export type ResetPasswordInput = {
+  password: string;
+  recoveryCode?: string;
+  recoveryEmail?: string;
+};
+
 export type AuthActionResult = {
   session: AuthSession | null;
   message: string;
@@ -49,6 +61,9 @@ export type AuthClient = {
   requestPasswordReset: (
     input: ForgotPasswordInput,
   ) => Promise<PasswordResetResult>;
+  completePasswordReset: (
+    input: ResetPasswordInput,
+  ) => Promise<AuthActionResult>;
 };
 
 export type AuthFieldErrors = Partial<

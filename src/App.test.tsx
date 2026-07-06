@@ -28,6 +28,7 @@ describe("App", () => {
 
   it("runs the basic workshop loop from chat input to report output", async () => {
     render(<App />);
+    await registerForWorkshopAccess();
 
     expect(
       screen.getByRole("heading", { name: /collaborative requirement room/i }),
@@ -120,6 +121,7 @@ describe("App", () => {
     vi.stubGlobal("fetch", pendingFetchMock);
 
     render(<App />);
+    await registerForWorkshopAccess();
 
     fireEvent.change(screen.getByLabelText(/describe, challenge, or refine/i), {
       target: {
@@ -148,6 +150,7 @@ describe("App", () => {
 
   it("generates a prototype preview and records prototype feedback", async () => {
     render(<App />);
+    await registerForWorkshopAccess();
 
     fireEvent.change(screen.getByLabelText(/describe, challenge, or refine/i), {
       target: {
@@ -188,6 +191,7 @@ describe("App", () => {
 
   it("restores an in-progress workshop from local storage after remount", async () => {
     const { unmount } = render(<App />);
+    await registerForWorkshopAccess();
 
     fireEvent.change(screen.getByLabelText(/describe, challenge, or refine/i), {
       target: {
@@ -210,6 +214,7 @@ describe("App", () => {
 
     unmount();
     render(<App />);
+    await registerForWorkshopAccess();
 
     expect(
       await screen.findAllByText(/cross-agency handover/i),
@@ -219,6 +224,7 @@ describe("App", () => {
 
   it("shows unread agent insights with a raised hand until the agent panel is opened", async () => {
     render(<App />);
+    await registerForWorkshopAccess();
 
     fireEvent.change(screen.getByLabelText(/describe, challenge, or refine/i), {
       target: {
@@ -281,6 +287,7 @@ describe("App", () => {
 
   it("attaches files to a workshop turn as source artifacts", async () => {
     render(<App />);
+    await registerForWorkshopAccess();
 
     const file = new File(["alarm_id,status\n1,active"], "alarms.csv", {
       type: "text/csv",
@@ -301,6 +308,7 @@ describe("App", () => {
 
   it("imports a durable workshop record export", async () => {
     render(<App />);
+    await registerForWorkshopAccess();
 
     const session = createInitialWorkshopSession(
       "2026-07-06T08:00:00.000Z",
@@ -396,6 +404,7 @@ describe("App", () => {
 
   it("exposes accessible regions, stateful controls, and dismissible dialogs for the workshop shell", async () => {
     render(<App />);
+    await registerForWorkshopAccess();
 
     expect(screen.getByLabelText(/workshop status/i)).toBeInTheDocument();
     expect(
@@ -476,6 +485,28 @@ function cssBlock(css: string, selector: string) {
   const match = new RegExp(`${escapedSelector}\\s*{([\\s\\S]*?)\\n}`).exec(css);
   expect(match?.[1]).toBeDefined();
   return match![1];
+}
+
+async function registerForWorkshopAccess() {
+  fireEvent.click(await screen.findByRole("button", { name: /^sign in$/i }));
+
+  const dialog = screen.getByRole("dialog", { name: /authentication/i });
+  fireEvent.click(within(dialog).getByRole("button", { name: /register/i }));
+  fireEvent.change(within(dialog).getByLabelText(/display name/i), {
+    target: { value: "Workshop Tester" },
+  });
+  fireEvent.change(within(dialog).getByLabelText(/^email$/i), {
+    target: { value: "tester@example.com" },
+  });
+  fireEvent.change(within(dialog).getByLabelText(/^password$/i), {
+    target: { value: "workshop-passphrase" },
+  });
+  const registerButtons = within(dialog).getAllByRole("button", {
+    name: /^register$/i,
+  });
+  fireEvent.click(registerButtons[registerButtons.length - 1]);
+
+  await screen.findByLabelText(/signed-in account/i);
 }
 
 function createFetchMock() {

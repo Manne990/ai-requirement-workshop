@@ -129,8 +129,10 @@ Required data domains:
 
 - `profiles`: user display profile linked to Supabase Auth users.
 - `organizations`: tenant or account boundary for workshop ownership.
-- `memberships`: user role in an organization, such as owner, facilitator,
-  contributor, reviewer, or viewer.
+- `memberships`: user role in an organization: owner, facilitator,
+  participant, or viewer.
+- `organization_invites`: pending, accepted, revoked, and expired organization
+  invitations keyed by an application-generated token hash.
 - `workshops`: title, lifecycle status, owning organization, created/updated
   metadata, and optional local V4 import source id.
 - `workshop_participants`: invited humans and AI lens participants visible in a
@@ -194,12 +196,27 @@ Supabase Realtime owns collaboration fanout:
 - workshop presence
 - message creation
 - artifact creation and status updates
+- selected workshop, selected artifact, visualization mode, and follow-mode
+  metadata
 - approval state changes
 - readiness-affecting data changes
 
 Realtime is not the authority for conflict resolution. Postgres writes and audit
 events remain authoritative. Clients should treat Realtime as invalidation and
 presence transport, then reconcile against current server rows.
+
+The current codebase now has a foundation for this boundary without wiring it
+into auth or the workshop UI:
+
+- `src/domain/collaboration.ts` defines deterministic event ids, presence
+  session events, per-artifact revisions, metadata revisions, provenance, and
+  explicit conflict records.
+- `src/persistence/realtimeWorkshopChannel.ts` defines the transport interface,
+  a local in-memory channel for tests and anonymous/local fallback, and a narrow
+  Supabase Realtime adapter for broadcast and presence.
+- Concurrent artifact status changes require the sender's expected artifact
+  revision. A stale update is retained as a conflict instead of silently
+  replacing the current status.
 
 ## Vercel Deployment Assumptions
 

@@ -4,10 +4,12 @@ import {
   baselineRequirement,
   createRequirement,
   deriveRequirementsFromArtifacts,
+  mergeRequirements,
   promoteRequirementToCandidate,
   rejectRequirement,
   reopenRequirement,
   reviseRequirement,
+  splitRequirement,
   supersedeRequirement,
   validRequirementTransitions,
   type Requirement,
@@ -255,6 +257,207 @@ describe("requirement lifecycle domain", () => {
     expect(approveRequirement(candidate, approvalCommand).state).toBe(
       "approved",
     );
+  });
+
+  it("merges requirement candidates into one approved replacement with history and provenance", () => {
+    const first = withCriteria(
+      deriveRequirementsFromArtifacts([candidateArtifact]).requirements[0],
+    );
+    const second = withCriteria(
+      deriveRequirementsFromArtifacts([
+        {
+          ...candidateArtifact,
+          id: "artifact-requirement-2",
+          title: "Incident summary source names",
+          content:
+            "The system should show which source systems contributed to the incident summary.",
+          source: {
+            messageId: "message-2",
+            participantId: "human-1",
+          },
+        },
+      ]).requirements[0],
+    );
+
+    const result = mergeRequirements(
+      [first, second],
+      [first.id, second.id],
+      {
+        id: "requirement-incident-summary",
+        title: "Incident summary",
+        statement:
+          "The system should summarize new incident data and name the source systems used.",
+        state: "approved",
+      },
+      {
+        actorId: "human-1",
+        at: "2026-07-05T10:20:00.000Z",
+        rationale: "Merged overlapping summary requirements for approval.",
+      },
+    );
+
+    const merged = result.createdRequirements[0];
+
+    expect(merged).toMatchObject({
+      id: "requirement-incident-summary",
+      state: "approved",
+      version: 2,
+      approvedBy: "human-1",
+    });
+    expect(merged?.history.map((entry) => entry.action)).toEqual([
+      "merged",
+      "approved",
+    ]);
+    expect(
+      merged?.sourceRefs.map((source) => source.artifactId).sort(),
+    ).toEqual(["artifact-requirement-1", "artifact-requirement-2"]);
+    expect(result.supersededRequirements).toEqual([
+      expect.objectContaining({
+        id: first.id,
+        state: "superseded",
+        supersededByRequirementIds: ["requirement-incident-summary"],
+      }),
+      expect.objectContaining({
+        id: second.id,
+        state: "superseded",
+        supersededByRequirementIds: ["requirement-incident-summary"],
+      }),
+    ]);
+    expect(
+      result.requirements.filter(
+        (requirement) => requirement.state === "approved",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("splits one broad requirement into approved replacements", () => {
+    const broad = approveRequirement(
+      reviseRequirement(
+        createRequirement({
+          id: "requirement-broad-dashboard",
+          title: "Alarm dashboard",
+          statement:
+            "The dashboard should show active alarms and filter alarms by customer.",
+          state: "candidate",
+          createdAt: "2026-07-05T11:00:00.000Z",
+          createdBy: "agent-quality",
+          acceptanceCriteria: [
+            "Active alarms are visible.",
+            "Customer filtering is available.",
+          ],
+          sourceRefs: [
+            {
+              artifactId: "artifact-requirement-10",
+              messageId: "message-10",
+              participantId: "human-1",
+            },
+          ],
+        }),
+        { rationale: "Broad draft needs lifecycle coverage." },
+        {
+          actorId: "agent-quality",
+          at: "2026-07-05T11:01:00.000Z",
+          rationale: "Documented the source rationale.",
+        },
+      ),
+      {
+        actorId: "human-1",
+        at: "2026-07-05T11:02:00.000Z",
+        rationale: "Owner accepted the broad requirement before splitting.",
+      },
+    );
+
+    const result = splitRequirement(
+      [broad],
+      broad.id,
+      [
+        {
+          id: "requirement-active-alarm-overview",
+          title: "Active alarm overview",
+          statement: "The dashboard must show all active alarms.",
+          state: "approved",
+          acceptanceCriteria: ["Active alarms appear in the overview."],
+        },
+        {
+          id: "requirement-customer-alarm-filter",
+          title: "Customer alarm filter",
+          statement: "The dashboard must filter alarms by customer.",
+          state: "approved",
+          acceptanceCriteria: ["Users can filter alarms by customer."],
+        },
+      ],
+      {
+        actorId: "human-1",
+        at: "2026-07-05T11:10:00.000Z",
+        rationale: "Split broad requirement into independently testable items.",
+      },
+    );
+
+    expect(result.supersededRequirements[0]).toMatchObject({
+      id: broad.id,
+      state: "superseded",
+      supersededByRequirementIds: [
+        "requirement-active-alarm-overview",
+        "requirement-customer-alarm-filter",
+      ],
+    });
+    expect(
+      result.createdRequirements.map((requirement) => ({
+        id: requirement.id,
+        state: requirement.state,
+        sourceRefs: requirement.sourceRefs,
+        actions: requirement.history.map((entry) => entry.action),
+      })),
+    ).toEqual([
+      {
+        id: "requirement-active-alarm-overview",
+        state: "approved",
+        sourceRefs: broad.sourceRefs,
+        actions: ["split", "approved"],
+      },
+      {
+        id: "requirement-customer-alarm-filter",
+        state: "approved",
+        sourceRefs: broad.sourceRefs,
+        actions: ["split", "approved"],
+      },
+    ]);
+  });
+
+  it("does not consolidate rejected or already superseded requirements", () => {
+    const rejected = rejectRequirement(
+      deriveRequirementsFromArtifacts([candidateArtifact]).requirements[0]!,
+      {
+        actorId: "human-1",
+        at: "2026-07-05T12:00:00.000Z",
+        rationale: "Out of scope.",
+      },
+    );
+    const candidate = withCriteria(
+      deriveRequirementsFromArtifacts([
+        {
+          ...candidateArtifact,
+          id: "artifact-requirement-2",
+        },
+      ]).requirements[0],
+    );
+
+    expect(() =>
+      mergeRequirements(
+        [rejected, candidate],
+        [rejected.id, candidate.id],
+        {
+          id: "requirement-merged",
+          title: "Merged",
+          statement: "The system should merge valid material.",
+        },
+        {
+          actorId: "human-1",
+          at: "2026-07-05T12:01:00.000Z",
+          rationale: "Testing rejected guard.",
+        },
+      ),
+    ).toThrow(/cannot be consolidated from rejected/);
   });
 });
 

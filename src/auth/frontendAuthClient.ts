@@ -1,6 +1,7 @@
 import {
   validateForgotPasswordInput,
   validateRegisterInput,
+  validateResetPasswordInput,
   validateSignInInput,
 } from "./validation";
 import type {
@@ -11,6 +12,7 @@ import type {
   ForgotPasswordInput,
   PasswordResetResult,
   RegisterInput,
+  ResetPasswordInput,
   SignInInput,
 } from "./types";
 
@@ -76,6 +78,25 @@ export function createFrontendAuthClient(
         message:
           "Password reset request accepted by the frontend auth adapter.",
       };
+    },
+
+    async completePasswordReset(
+      input: ResetPasswordInput,
+    ): Promise<AuthActionResult> {
+      const validation = validateResetPasswordInput(input);
+      if (!validation.ok) {
+        throw new Error(validation.message);
+      }
+
+      const email =
+        validation.value.recoveryEmail ?? "password-reset@example.local";
+      return createAuthActionResult({
+        email,
+        displayName: displayNameFromEmail(email),
+        now,
+        message:
+          "Password reset completed by the frontend auth adapter. No server password was stored.",
+      });
     },
   };
 }

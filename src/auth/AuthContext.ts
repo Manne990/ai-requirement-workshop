@@ -5,6 +5,7 @@ import type {
   AuthSession,
   ForgotPasswordInput,
   RegisterInput,
+  ResetPasswordInput,
   SignInInput,
 } from "./types";
 
@@ -18,6 +19,9 @@ export type AuthContextValue = {
   register: (input: RegisterInput) => Promise<AuthActionResult>;
   signOut: () => Promise<void>;
   requestPasswordReset: (input: ForgotPasswordInput) => Promise<void>;
+  completePasswordReset: (
+    input: ResetPasswordInput,
+  ) => Promise<AuthActionResult>;
   clearAuthMessage: () => void;
 };
 

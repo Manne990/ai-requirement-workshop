@@ -25,8 +25,7 @@ create table if not exists public.organizations (
 create type public.organization_role as enum (
   'owner',
   'facilitator',
-  'contributor',
-  'reviewer',
+  'participant',
   'viewer'
 );
 
@@ -34,9 +33,35 @@ create table if not exists public.memberships (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
   user_id uuid not null references public.profiles(id) on delete cascade,
-  role public.organization_role not null default 'contributor',
+  role public.organization_role not null default 'participant',
+  status text not null default 'active' check (status in ('active', 'suspended', 'removed')),
   created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
   unique (organization_id, user_id)
+);
+
+create type public.organization_invite_status as enum (
+  'pending',
+  'accepted',
+  'revoked',
+  'expired'
+);
+
+create table if not exists public.organization_invites (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  email text not null,
+  token_hash text not null unique,
+  role public.organization_role not null default 'participant',
+  status public.organization_invite_status not null default 'pending',
+  invited_by_user_id uuid not null references public.profiles(id),
+  expires_at timestamptz not null,
+  accepted_by_user_id uuid references public.profiles(id),
+  accepted_at timestamptz,
+  revoked_by_user_id uuid references public.profiles(id),
+  revoked_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 create type public.workshop_status as enum (
@@ -236,6 +261,10 @@ create table if not exists public.read_states (
 );
 
 create index if not exists memberships_user_idx on public.memberships(user_id);
+create index if not exists organization_invites_org_idx on public.organization_invites(organization_id, status);
+create unique index if not exists organization_invites_pending_email_idx
+  on public.organization_invites(organization_id, email)
+  where status = 'pending';
 create index if not exists workshops_org_idx on public.workshops(organization_id);
 create index if not exists messages_workshop_idx on public.messages(workshop_id, created_at);
 create index if not exists artifacts_workshop_idx on public.artifacts(workshop_id, updated_at);
@@ -253,6 +282,7 @@ as $$
     from public.memberships
     where organization_id = target_org_id
       and user_id = auth.uid()
+      and status = 'active'
   );
 $$;
 
@@ -268,7 +298,25 @@ as $$
     from public.memberships
     where organization_id = target_org_id
       and user_id = auth.uid()
-      and role in ('owner', 'facilitator', 'contributor', 'reviewer')
+      and status = 'active'
+      and role in ('owner', 'facilitator')
+  );
+$$;
+
+create or replace function public.can_manage_org(target_org_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1
+    from public.memberships
+    where organization_id = target_org_id
+      and user_id = auth.uid()
+      and status = 'active'
+      and role = 'owner'
   );
 $$;
 
@@ -285,6 +333,7 @@ as $$
     join public.memberships m on m.organization_id = w.organization_id
     where w.id = target_workshop_id
       and m.user_id = auth.uid()
+      and m.status = 'active'
   );
 $$;
 
@@ -301,13 +350,15 @@ as $$
     join public.memberships m on m.organization_id = w.organization_id
     where w.id = target_workshop_id
       and m.user_id = auth.uid()
-      and m.role in ('owner', 'facilitator', 'contributor', 'reviewer')
+      and m.status = 'active'
+      and m.role in ('owner', 'facilitator', 'participant')
   );
 $$;
 
 alter table public.profiles enable row level security;
 alter table public.organizations enable row level security;
 alter table public.memberships enable row level security;
+alter table public.organization_invites enable row level security;
 alter table public.workshops enable row level security;
 alter table public.workshop_participants enable row level security;
 alter table public.messages enable row level security;
@@ -332,11 +383,16 @@ create policy organizations_member_select on public.organizations
 create policy organizations_creator_insert on public.organizations
   for insert with check (created_by = auth.uid());
 create policy organizations_owner_update on public.organizations
-  for update using (public.can_edit_org(id)) with check (public.can_edit_org(id));
+  for update using (public.can_manage_org(id)) with check (public.can_manage_org(id));
 
 create policy memberships_member_select on public.memberships
   for select using (public.is_org_member(organization_id));
 create policy memberships_owner_write on public.memberships
+  for all using (public.can_manage_org(organization_id)) with check (public.can_manage_org(organization_id));
+
+create policy organization_invites_member_select on public.organization_invites
+  for select using (public.is_org_member(organization_id));
+create policy organization_invites_facilitator_write on public.organization_invites
   for all using (public.can_edit_org(organization_id)) with check (public.can_edit_org(organization_id));
 
 create policy workshops_member_select on public.workshops

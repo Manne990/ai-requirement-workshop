@@ -6,6 +6,14 @@ import {
   type WorkshopArtifact,
   type WorkshopSession,
 } from "./workshop";
+import {
+  approveRequirement,
+  deriveRequirementsFromArtifacts,
+  reviseRequirement,
+  type Requirement,
+  type RequirementAcceptanceCriterionInput,
+  type RequirementBacklogDerivation,
+} from "./requirements";
 
 export type RequirementConsolidationDraft = {
   title: string;
@@ -42,6 +50,20 @@ export type SplitArtifactOptions = {
   createdBy?: string;
   tags?: string[];
 };
+
+export type ApplyArtifactConsolidationOptions = {
+  actorId?: string;
+  at?: string;
+  approve?: boolean;
+  rationale?: string;
+  acceptanceCriteria?: RequirementAcceptanceCriterionInput[];
+  sourceStatus?: ArtifactStatus;
+};
+
+export type ArtifactRequirementConsolidationResult =
+  RequirementBacklogDerivation & {
+    session: WorkshopSession;
+  };
 
 const now = () => new Date().toISOString();
 
@@ -258,6 +280,102 @@ export function splitArtifactIntoRequirements(
   };
 }
 
+export function applyArtifactConsolidationSuggestion(
+  session: WorkshopSession,
+  requirements: Requirement[],
+  suggestion: ArtifactConsolidationSuggestion,
+  options: ApplyArtifactConsolidationOptions = {},
+): ArtifactRequirementConsolidationResult {
+  const appliedAt = options.at ?? now();
+  const actorId = options.actorId ?? participantIds.facilitator;
+  const beforeArtifactIds = new Set(
+    session.artifacts.map((artifact) => artifact.id),
+  );
+  const nextSession =
+    suggestion.kind === "merge"
+      ? mergeArtifactsIntoRequirement(
+          session,
+          suggestion.sourceArtifactIds,
+          {
+            ...suggestion.proposedRequirements[0],
+            createdBy: actorId,
+            sourceStatus: options.sourceStatus,
+          },
+          appliedAt,
+        )
+      : splitArtifactIntoRequirements(
+          session,
+          suggestion.sourceArtifactIds[0] ?? "",
+          suggestion.proposedRequirements,
+          {
+            createdBy: actorId,
+            sourceStatus: options.sourceStatus,
+          },
+          appliedAt,
+        );
+  const newRequirementArtifacts = nextSession.artifacts.filter(
+    (artifact) =>
+      !beforeArtifactIds.has(artifact.id) && artifact.type === "requirement",
+  );
+  const derivation = deriveRequirementsFromArtifacts(
+    newRequirementArtifacts,
+    requirements,
+    {
+      actorId,
+      at: appliedAt,
+      acceptanceCriteria: options.acceptanceCriteria,
+      rationale:
+        options.rationale ??
+        "Created first-class requirements from an approved consolidation suggestion.",
+    },
+  );
+  const createdRequirements = derivation.createdRequirements.map(
+    (requirement) => {
+      const withSources = reviseRequirement(
+        requirement,
+        {
+          sourceRefs: [
+            ...requirement.sourceRefs,
+            ...suggestion.sourceArtifactIds.map((artifactId) => ({
+              artifactId,
+              participantId: actorId,
+            })),
+          ],
+        },
+        {
+          actorId,
+          at: appliedAt,
+          rationale:
+            options.rationale ??
+            "Preserved original source artifacts for consolidation traceability.",
+        },
+      );
+
+      return options.approve
+        ? approveRequirement(withSources, {
+            actorId,
+            at: appliedAt,
+            rationale:
+              options.rationale ??
+              "Approved requirement after human-reviewed consolidation.",
+          })
+        : withSources;
+    },
+  );
+  const finalRequirements = replaceCreatedRequirements(
+    derivation.requirements,
+    createdRequirements,
+  );
+
+  return {
+    session: nextSession,
+    requirements: finalRequirements,
+    createdRequirements,
+    updatedRequirements: derivation.updatedRequirements,
+    linkedArtifactIds: derivation.linkedArtifactIds,
+  };
+}
+
 function isDraftRequirementMaterial(artifact: WorkshopArtifact) {
   return (
     artifact.status === "draft" &&
@@ -294,6 +412,19 @@ function readDraftSources(
     }
     return artifact;
   });
+}
+
+function replaceCreatedRequirements(
+  requirements: Requirement[],
+  replacements: Requirement[],
+) {
+  const byId = new Map(
+    replacements.map((requirement) => [requirement.id, requirement]),
+  );
+
+  return requirements.map(
+    (requirement) => byId.get(requirement.id) ?? requirement,
+  );
 }
 
 function createRequirementArtifact(

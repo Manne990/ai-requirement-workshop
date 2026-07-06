@@ -2,6 +2,7 @@ import type { Session, SupabaseClient } from "@supabase/supabase-js";
 import {
   validateForgotPasswordInput,
   validateRegisterInput,
+  validateResetPasswordInput,
   validateSignInInput,
 } from "./validation";
 import type {
@@ -12,6 +13,7 @@ import type {
   ForgotPasswordInput,
   PasswordResetResult,
   RegisterInput,
+  ResetPasswordInput,
   SignInInput,
 } from "./types";
 
@@ -22,17 +24,21 @@ type SupabaseAuth = Pick<
   | "signUp"
   | "signOut"
   | "resetPasswordForEmail"
+  | "exchangeCodeForSession"
+  | "updateUser"
 >;
 
 type SupabaseAuthClientOptions = {
   supabase: { auth: SupabaseAuth };
   redirectTo?: string;
+  passwordResetRedirectTo?: string;
   now?: () => string;
 };
 
 export function createSupabaseAuthClient({
   supabase,
   redirectTo,
+  passwordResetRedirectTo = redirectTo,
   now = () => new Date().toISOString(),
 }: SupabaseAuthClientOptions): AuthClient {
   return {
@@ -113,7 +119,9 @@ export function createSupabaseAuthClient({
 
       const { error } = await supabase.auth.resetPasswordForEmail(
         validation.value.email,
-        redirectTo ? { redirectTo } : undefined,
+        passwordResetRedirectTo
+          ? { redirectTo: passwordResetRedirectTo }
+          : undefined,
       );
       if (error) {
         throw new Error(error.message);
@@ -123,6 +131,46 @@ export function createSupabaseAuthClient({
         email: validation.value.email,
         accepted: true,
         message: "Password reset email requested through Supabase Auth.",
+      };
+    },
+
+    async completePasswordReset(
+      input: ResetPasswordInput,
+    ): Promise<AuthActionResult> {
+      const validation = validateResetPasswordInput(input);
+      if (!validation.ok) {
+        throw new Error(validation.message);
+      }
+
+      if (validation.value.recoveryCode) {
+        const { error } = await supabase.auth.exchangeCodeForSession(
+          validation.value.recoveryCode,
+        );
+        if (error) {
+          throw new Error(error.message);
+        }
+      }
+
+      const { error } = await supabase.auth.updateUser({
+        password: validation.value.password,
+      });
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      const { data, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) {
+        throw new Error(sessionError.message);
+      }
+      if (!data.session) {
+        throw new Error(
+          "Password reset did not return an authenticated session.",
+        );
+      }
+
+      return {
+        session: toAuthSession(data.session, now),
+        message: "Password updated with Supabase Auth.",
       };
     },
   };
