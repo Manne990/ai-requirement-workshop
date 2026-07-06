@@ -5,7 +5,6 @@ import {
   Controls,
   Handle,
   MarkerType,
-  Panel,
   Position,
   ReactFlow,
   type Edge,
@@ -69,6 +68,13 @@ import {
   appendPendingCodexHumanMessage,
   applyCodexWorkshopTurn,
 } from "./domain/codexWorkshop";
+import {
+  applyCollaborationEvent,
+  createCollaborationEvent,
+  createCollaborationProjection,
+  type CollaborationActor,
+  type WorkshopPresenceSession,
+} from "./domain/collaboration";
 import type { AttachmentDraft } from "./domain/attachments";
 import {
   generatePrototypeFromWorkshop,
@@ -148,6 +154,8 @@ import {
   organizationRepository,
   type OrganizationMembershipContext,
 } from "./persistence/organizationRepository";
+import { createBrowserRealtimeWorkshopChannel } from "./persistence/browserRealtimeWorkshopChannel";
+import type { RealtimeWorkshopChannel } from "./persistence/realtimeWorkshopChannel";
 import {
   mirrorWorkshopRecordToDisk,
   type DiskBackupResult,
@@ -385,6 +393,9 @@ function WorkshopRoom() {
   const [organizationError, setOrganizationError] = useState<string | null>(
     null,
   );
+  const [presenceSessions, setPresenceSessions] = useState<
+    WorkshopPresenceSession[]
+  >([]);
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [selectedInsightParticipantId, setSelectedInsightParticipantId] =
     useState<string | null>(null);
@@ -406,6 +417,16 @@ function WorkshopRoom() {
   const telemetryCorrelationIdRef = useRef(
     `workshop-runtime-${Date.now().toString(36)}`,
   );
+  const realtimeChannelRef = useRef<RealtimeWorkshopChannel | null>(null);
+  const realtimeSequenceRef = useRef(0);
+  const isApplyingRemoteEventRef = useRef(false);
+  const clientIdRef = useRef(stableClientId());
+  const connectedAtRef = useRef(new Date().toISOString());
+  const clientSessionIdRef = useRef(
+    `browser-session-${Date.now().toString(36)}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`,
+  );
 
   const createTelemetryOptions = useCallback(
     (
@@ -420,6 +441,101 @@ function WorkshopRoom() {
       recordId: activeWorkshopId,
     }),
     [activeWorkshopId],
+  );
+
+  const publishRealtimeSessionDelta = useCallback(
+    async (previous: WorkshopSession, next: WorkshopSession) => {
+      const channel = realtimeChannelRef.current;
+      if (!channel || isApplyingRemoteEventRef.current || !authSession?.user) {
+        return;
+      }
+
+      const previousMessageIds = new Set(
+        previous.messages.map((message) => message.id),
+      );
+      const previousArtifactIds = new Set(
+        previous.artifacts.map((artifact) => artifact.id),
+      );
+
+      for (const message of next.messages.filter(
+        (candidate) => !previousMessageIds.has(candidate.id),
+      )) {
+        await channel.publishEvent(
+          createCollaborationEvent({
+            type: "message.added",
+            workshopId: next.id,
+            clientId: clientIdRef.current,
+            clientSessionId: clientSessionIdRef.current,
+            sequence: nextRealtimeSequence(realtimeSequenceRef),
+            occurredAt: message.createdAt,
+            actor: actorForParticipant(
+              next.participants,
+              message.participantId,
+              authSession.user,
+            ),
+            payload: { message },
+          }),
+        );
+      }
+
+      for (const artifact of next.artifacts.filter(
+        (candidate) => !previousArtifactIds.has(candidate.id),
+      )) {
+        await channel.publishEvent(
+          createCollaborationEvent({
+            type: "artifact.added",
+            workshopId: next.id,
+            clientId: clientIdRef.current,
+            clientSessionId: clientSessionIdRef.current,
+            sequence: nextRealtimeSequence(realtimeSequenceRef),
+            occurredAt: artifact.updatedAt,
+            actor: actorForParticipant(
+              next.participants,
+              artifact.createdBy,
+              authSession.user,
+            ),
+            payload: { artifact, revision: 0 },
+          }),
+        );
+      }
+    },
+    [authSession?.user],
+  );
+
+  const publishRealtimeArtifactStatusChange = useCallback(
+    async (
+      previousArtifact: WorkshopArtifact,
+      nextArtifact: WorkshopArtifact,
+    ) => {
+      const channel = realtimeChannelRef.current;
+      if (!channel || isApplyingRemoteEventRef.current || !authSession?.user) {
+        return;
+      }
+
+      await channel.publishEvent(
+        createCollaborationEvent({
+          type: "artifact.statusChanged",
+          workshopId: session.id,
+          clientId: clientIdRef.current,
+          clientSessionId: clientSessionIdRef.current,
+          sequence: nextRealtimeSequence(realtimeSequenceRef),
+          occurredAt: nextArtifact.updatedAt,
+          actor: actorForParticipant(
+            session.participants,
+            nextArtifact.createdBy,
+            authSession.user,
+          ),
+          payload: {
+            artifactId: nextArtifact.id,
+            status: nextArtifact.status,
+            expectedRevision:
+              previousArtifact.status === nextArtifact.status ? 1 : 0,
+            updatedAt: nextArtifact.updatedAt,
+          },
+        }),
+      );
+    },
+    [authSession?.user, session.id, session.participants],
   );
 
   useEffect(() => {
@@ -533,6 +649,67 @@ function WorkshopRoom() {
       isMounted = false;
     };
   }, [authSession?.user, initialWorkshopState, organizationRuntime]);
+
+  useEffect(() => {
+    if (
+      !authSession?.user ||
+      !isStoreReady ||
+      typeof BroadcastChannel === "undefined"
+    ) {
+      return;
+    }
+
+    const channel = createBrowserRealtimeWorkshopChannel({
+      workshopId: session.id,
+      clientId: clientIdRef.current,
+      clientSessionId: clientSessionIdRef.current,
+    });
+    realtimeChannelRef.current = channel;
+
+    const unsubscribeEvents = channel.subscribeToEvents((event) => {
+      if (event.clientSessionId === clientSessionIdRef.current) {
+        return;
+      }
+
+      isApplyingRemoteEventRef.current = true;
+      setSession((current) => {
+        const projection = applyCollaborationEvent(
+          createCollaborationProjection(current),
+          event,
+        );
+        return projection.session;
+      });
+      isApplyingRemoteEventRef.current = false;
+    });
+    const unsubscribePresence =
+      channel.subscribeToPresence(setPresenceSessions);
+
+    const track = () =>
+      channel.trackPresence({
+        workshopId: session.id,
+        sessionId: clientSessionIdRef.current,
+        clientId: clientIdRef.current,
+        participantId: participantIds.human,
+        userId: authSession.user.id,
+        displayName: authSession.user.displayName,
+        status: "active",
+        connectedAt: connectedAtRef.current,
+        lastSeenAt: new Date().toISOString(),
+      });
+    void track();
+    const heartbeat = window.setInterval(() => void track(), 15_000);
+
+    return () => {
+      window.clearInterval(heartbeat);
+      unsubscribeEvents();
+      unsubscribePresence();
+      void channel.close();
+      if (realtimeChannelRef.current === channel) {
+        realtimeChannelRef.current = null;
+      }
+      setPresenceSessions([]);
+    };
+  }, [authSession?.user, isStoreReady, session.id]);
 
   useEffect(() => {
     if (!isStoreReady || !organizationRuntime) {
@@ -691,6 +868,7 @@ function WorkshopRoom() {
       submittedAt,
     );
     setSession(sessionWithPendingMessage);
+    void publishRealtimeSessionDelta(session, sessionWithPendingMessage);
     if (submittedMessage) {
       recordMissionControlTelemetry(
         createMessageSentTelemetry(
@@ -708,15 +886,17 @@ function WorkshopRoom() {
         message,
         attachmentsForTurn,
       );
-      setSession((current) =>
-        applyCodexWorkshopTurn(
+      setSession((current) => {
+        const next = applyCodexWorkshopTurn(
           current,
           message,
           turn,
           attachmentsForTurn,
           submittedAt,
-        ),
-      );
+        );
+        void publishRealtimeSessionDelta(current, next);
+        return next;
+      });
     } catch (error) {
       setDraft(message);
       setPendingAttachments(attachmentsForTurn);
@@ -932,12 +1112,16 @@ function WorkshopRoom() {
               "WorkshopRoom.handleStatusChange",
             ),
           );
+          void publishRealtimeArtifactStatusChange(
+            previousArtifact,
+            nextArtifact,
+          );
         }
 
         return next;
       });
     },
-    [createTelemetryOptions],
+    [createTelemetryOptions, publishRealtimeArtifactStatusChange],
   );
 
   const handleApplyConsolidation = useCallback(
@@ -1358,42 +1542,29 @@ function WorkshopRoom() {
               <p className="eyebrow">Live canvas</p>
               <h2>{session.title}</h2>
             </div>
-            <div className="mode-control" aria-label="Visualization mode">
-              {(Object.keys(visualizationLabels) as VisualizationMode[]).map(
-                (mode) => (
-                  <button
-                    type="button"
-                    key={mode}
-                    aria-pressed={session.visualizationMode === mode}
-                    className={
-                      session.visualizationMode === mode ? "active" : ""
-                    }
-                    onClick={() =>
-                      setSession((current) =>
-                        setVisualizationMode(current, mode),
-                      )
-                    }
-                  >
-                    {visualizationLabels[mode]}
-                  </button>
-                ),
-              )}
-            </div>
-          </div>
-
-          <div className="canvas-surface">
-            <ReactFlow
-              nodes={artifactNodes}
-              edges={artifactEdges}
-              nodeTypes={{ artifact: ArtifactNode }}
-              fitView
-              minZoom={0.35}
-              maxZoom={1.6}
-              proOptions={{ hideAttribution: true }}
-            >
-              <Background gap={22} color="rgba(255,255,255,0.08)" />
-              <Controls position="bottom-left" />
-              <Panel position="top-left" className="canvas-panel">
+            <div className="canvas-toolbar">
+              <div className="mode-control" aria-label="Visualization mode">
+                {(Object.keys(visualizationLabels) as VisualizationMode[]).map(
+                  (mode) => (
+                    <button
+                      type="button"
+                      key={mode}
+                      aria-pressed={session.visualizationMode === mode}
+                      className={
+                        session.visualizationMode === mode ? "active" : ""
+                      }
+                      onClick={() =>
+                        setSession((current) =>
+                          setVisualizationMode(current, mode),
+                        )
+                      }
+                    >
+                      {visualizationLabels[mode]}
+                    </button>
+                  ),
+                )}
+              </div>
+              <div className="canvas-panel" aria-label="Canvas status">
                 <span>{acceptedCount} accepted</span>
                 <span>{draftCount} draft</span>
                 <button
@@ -1409,7 +1580,22 @@ function WorkshopRoom() {
                   <Focus aria-hidden="true" size={14} />
                   Follow
                 </button>
-              </Panel>
+              </div>
+            </div>
+          </div>
+
+          <div className="canvas-surface">
+            <ReactFlow
+              nodes={artifactNodes}
+              edges={artifactEdges}
+              nodeTypes={{ artifact: ArtifactNode }}
+              fitView
+              minZoom={0.35}
+              maxZoom={1.6}
+              proOptions={{ hideAttribution: true }}
+            >
+              <Background gap={22} color="rgba(255,255,255,0.08)" />
+              <Controls position="bottom-left" />
             </ReactFlow>
           </div>
         </section>
@@ -1634,6 +1820,27 @@ function WorkshopRoom() {
         <ReadinessCard readiness={readiness} />
 
         <div className="participants-strip">
+          <section
+            className="live-collaborators"
+            aria-label="Connected collaborators"
+          >
+            <div className="live-collaborators__heading">
+              <Sparkles aria-hidden="true" size={18} />
+              <h3>Live collaborators</h3>
+            </div>
+            <ul>
+              {presenceSessions.length === 0 ? (
+                <li>Waiting for presence</li>
+              ) : (
+                presenceSessions.map((presence) => (
+                  <li key={presence.sessionId}>
+                    <span>{presence.displayName}</span>
+                    <small>{presence.status}</small>
+                  </li>
+                ))
+              )}
+            </ul>
+          </section>
           {session.participants.map((participant) => {
             const insights = insightsForParticipant(
               session.artifacts,
@@ -1790,6 +1997,36 @@ function findNewHumanMessage(
 
 function recordMissionControlTelemetry(event: MissionControlTelemetryEvent) {
   void missionControlTelemetrySink.record(event).catch(() => undefined);
+}
+
+function nextRealtimeSequence(ref: { current: number }) {
+  ref.current += 1;
+  return ref.current;
+}
+
+function actorForParticipant(
+  participants: Participant[],
+  participantId: string,
+  user: AuthUser,
+): CollaborationActor {
+  const participant = participants.find(
+    (candidate) => candidate.id === participantId,
+  );
+
+  if (!participant || participant.type === "human") {
+    return {
+      participantId: participantId || participantIds.human,
+      userId: user.id,
+      displayName: user.displayName,
+      type: "human",
+    };
+  }
+
+  return {
+    participantId,
+    displayName: participant.name,
+    type: participant.type,
+  };
 }
 
 function createMissionControlTelemetrySource(
@@ -2152,7 +2389,10 @@ function ReportDrawer({
 }
 
 function loadSession() {
-  const fallback = createInitialWorkshopSession();
+  const fallback = createInitialWorkshopSession(
+    undefined,
+    initialWorkshopIdFromUrl(),
+  );
   try {
     const raw = window.localStorage.getItem(storageKey);
     if (!raw) {
@@ -2161,6 +2401,38 @@ function loadSession() {
     return migrateSession(JSON.parse(raw) as Partial<WorkshopSession>);
   } catch {
     return fallback;
+  }
+}
+
+function initialWorkshopIdFromUrl() {
+  try {
+    const workshopId = new URLSearchParams(window.location.search)
+      .get("workshopId")
+      ?.trim();
+    return workshopId || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function stableClientId() {
+  const key = "ai-requirement-workshop:v1-realtime-client-id";
+  try {
+    const existing = window.localStorage.getItem(key);
+    if (existing) {
+      return existing;
+    }
+
+    const next =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? `browser-client-${crypto.randomUUID()}`
+        : `browser-client-${Date.now().toString(36)}-${Math.random()
+            .toString(36)
+            .slice(2, 10)}`;
+    window.localStorage.setItem(key, next);
+    return next;
+  } catch {
+    return `browser-client-${Date.now().toString(36)}`;
   }
 }
 
