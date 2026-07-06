@@ -96,3 +96,14 @@ V1 must remain easy for agents and humans to verify:
 - `npm run lint` verifies static code quality.
 - `npm run build` verifies production packaging.
 - `npm run ci` runs the complete local gate.
+
+## Production Review Export
+
+The report dialog now exposes a production review package in addition to the
+Markdown report. The JSON package uses
+`AI_REQUIREMENT_WORKSHOP_PRODUCTION_REVIEW_PACKAGE` and includes readiness,
+traceability, requirement quality, audit evidence, prototype coverage, appendix
+material, and redaction findings. The recovery/import envelope remains
+`AI_REQUIREMENT_WORKSHOP_RECORD_EXPORT`.
+
+The format contract is documented in `docs/production-export-format.md`.

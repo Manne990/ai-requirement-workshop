@@ -52,6 +52,10 @@ Before production launch:
 - Every server-backed workshop must remain exportable to a complete JSON or
   documented recovery format that includes messages, artifacts, links,
   attachments metadata, read states, approvals, and audit identifiers.
+- Production review exports use the documented
+  `AI_REQUIREMENT_WORKSHOP_PRODUCTION_REVIEW_PACKAGE` format in
+  `docs/production-export-format.md`. This package is review evidence, while
+  `AI_REQUIREMENT_WORKSHOP_RECORD_EXPORT` remains the recovery/import envelope.
 - Production deploy rollback must keep database migrations compatible with the
   previous application version or include a tested forward-only remediation.
 - Attachment storage recovery must document how object paths map back to

@@ -88,6 +88,49 @@ test.describe("production workshop hardening", () => {
     expect(reportMarkdown).toContain("Requirement candidate");
     expect(reportMarkdown).toContain(message);
 
+    const productionPackageDownload = await downloadFrom(page, async () => {
+      await report
+        .getByRole("button", { name: /download review package/i })
+        .click();
+    });
+    expect(productionPackageDownload.suggestedFilename()).toMatch(
+      /\.production-review\.json$/,
+    );
+    const productionPackage = JSON.parse(
+      await readDownloadText(productionPackageDownload),
+    ) as {
+      kind?: unknown;
+      readiness?: unknown;
+      requirementRegister?: unknown[];
+      audit?: unknown;
+      traceability?: unknown;
+      requirementQuality?: unknown;
+      prototypeSummary?: unknown;
+      provenance?: {
+        input?: {
+          approvedRequirementCount?: unknown;
+          prototypeCount?: unknown;
+        };
+      };
+    };
+    expect(productionPackage.kind).toBe(
+      "AI_REQUIREMENT_WORKSHOP_PRODUCTION_REVIEW_PACKAGE",
+    );
+    expect(["ready", "needs-review", "blocked"]).toContain(
+      productionPackage.readiness,
+    );
+    expect(
+      productionPackage.provenance?.input?.approvedRequirementCount,
+    ).toBeGreaterThanOrEqual(1);
+    expect(productionPackage.provenance?.input?.prototypeCount).toBe(1);
+    expect(
+      productionPackage.requirementRegister?.length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(productionPackage.audit).toBeDefined();
+    expect(productionPackage.traceability).toBeDefined();
+    expect(productionPackage.requirementQuality).toBeDefined();
+    expect(productionPackage.prototypeSummary).toBeDefined();
+
     await report.getByRole("button", { name: /close report/i }).click();
     await expect(report).toHaveCount(0);
 

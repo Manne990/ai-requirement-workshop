@@ -1035,6 +1035,12 @@ button:disabled {
   padding: 10px;
 }
 
+.report-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
 .report-body small {
   color: var(--color-muted);
 }

@@ -122,6 +122,10 @@ import {
   evaluateWorkshopReadiness,
   type WorkshopReadiness,
 } from "./domain/readiness";
+import {
+  createProductionExportPackage,
+  type ProductionExportPackage,
+} from "./domain/productionExport";
 import { evaluateRequirementQuality } from "./domain/requirementQuality";
 import {
   createInitialWorkshopSession,
@@ -967,6 +971,26 @@ function WorkshopRoom() {
     requirementLedger.auditEvents,
     requirementLedger.requirements,
     seenInsightIdsByParticipant,
+    session,
+  ]);
+
+  const handleDownloadProductionPackage = useCallback(() => {
+    downloadProductionReviewPackage(
+      createProductionExportPackage({
+        session,
+        organizationId:
+          organizationRuntime?.context.organization.id ?? "local-workshop",
+        workshopId: session.id,
+        generatedAt: new Date().toISOString(),
+        requirements: requirementLedger.requirements,
+        auditEvents: requirementLedger.auditEvents,
+      }),
+      session.title || session.id,
+    );
+  }, [
+    organizationRuntime,
+    requirementLedger.auditEvents,
+    requirementLedger.requirements,
     session,
   ]);
 
@@ -2005,6 +2029,7 @@ function WorkshopRoom() {
           report={report}
           onClose={() => setIsReportOpen(false)}
           onDownload={() => downloadReport(report)}
+          onDownloadProductionPackage={handleDownloadProductionPackage}
         />
       ) : null}
     </main>
@@ -2448,10 +2473,12 @@ function ReportDrawer({
   report,
   onClose,
   onDownload,
+  onDownloadProductionPackage,
 }: {
   report: WorkshopReport;
   onClose: () => void;
   onDownload: () => void;
+  onDownloadProductionPackage: () => void;
 }) {
   return (
     <aside
@@ -2504,10 +2531,20 @@ function ReportDrawer({
           </p>
         </section>
       </div>
-      <button className="primary-button" type="button" onClick={onDownload}>
-        <Download aria-hidden="true" size={18} />
-        Download markdown
-      </button>
+      <div className="report-actions">
+        <button className="primary-button" type="button" onClick={onDownload}>
+          <Download aria-hidden="true" size={18} />
+          Download markdown
+        </button>
+        <button
+          className="ghost-button"
+          type="button"
+          onClick={onDownloadProductionPackage}
+        >
+          <Download aria-hidden="true" size={18} />
+          Download review package
+        </button>
+      </div>
     </aside>
   );
 }
@@ -2808,6 +2845,21 @@ function downloadWorkshopRecord(record: WorkshopRecord) {
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = `${safeDownloadName(record.title || record.id)}.ai-workshop.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadProductionReviewPackage(
+  exportPackage: ProductionExportPackage,
+  workshopTitle: string,
+) {
+  const blob = new Blob([`${JSON.stringify(exportPackage, null, 2)}\n`], {
+    type: "application/json;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${safeDownloadName(workshopTitle)}.production-review.json`;
   anchor.click();
   URL.revokeObjectURL(url);
 }

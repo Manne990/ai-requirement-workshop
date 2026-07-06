@@ -395,6 +395,51 @@ describe("App", () => {
     expect(await screen.findAllByText(/backed up/i)).not.toHaveLength(0);
   });
 
+  it("downloads a production review package from the report dialog", async () => {
+    const download = captureNextDownload();
+    render(<App />);
+    await registerForWorkshopAccess();
+
+    await sendWorkshopMessage(
+      "A release reviewer needs a system that should trace approved requirement evidence before signoff.",
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /approve requirement candidate/i,
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /report/i }));
+
+    const report = screen.getByRole("dialog", { name: /workshop report/i });
+    fireEvent.click(
+      within(report).getByRole("button", {
+        name: /download review package/i,
+      }),
+    );
+
+    const downloaded = await download.readJson<{
+      kind?: string;
+      readiness?: string;
+      requirementRegister?: unknown[];
+      audit?: unknown;
+      traceability?: unknown;
+      requirementQuality?: unknown;
+      provenance?: { input?: { approvedRequirementCount?: number } };
+    }>();
+    expect(downloaded.kind).toBe(
+      "AI_REQUIREMENT_WORKSHOP_PRODUCTION_REVIEW_PACKAGE",
+    );
+    expect(["ready", "needs-review", "blocked"]).toContain(
+      downloaded.readiness,
+    );
+    expect(downloaded.requirementRegister).toHaveLength(1);
+    expect(downloaded.provenance?.input?.approvedRequirementCount).toBe(1);
+    expect(downloaded.audit).toBeDefined();
+    expect(downloaded.traceability).toBeDefined();
+    expect(downloaded.requirementQuality).toBeDefined();
+    download.restore();
+  });
+
   it("runs a CI-safe production smoke through auth, workshop opening, requirement approval, and report view", async () => {
     render(<App />);
 
@@ -698,6 +743,44 @@ async function waitForTelemetryEvent(eventName: string) {
       readMissionControlTelemetryRecords().map((record) => record.event.name),
     ).toContain(eventName),
   );
+}
+
+function captureNextDownload() {
+  let blob: Blob | null = null;
+  const originalCreateObjectUrl = URL.createObjectURL;
+  const originalRevokeObjectUrl = URL.revokeObjectURL;
+  Object.defineProperty(URL, "createObjectURL", {
+    configurable: true,
+    value: vi.fn((nextBlob: Blob) => {
+      blob = nextBlob;
+      return "blob:test-download";
+    }),
+  });
+  Object.defineProperty(URL, "revokeObjectURL", {
+    configurable: true,
+    value: vi.fn(),
+  });
+  const clickSpy = vi
+    .spyOn(HTMLAnchorElement.prototype, "click")
+    .mockImplementation(() => undefined);
+
+  return {
+    async readJson<T>() {
+      expect(blob).not.toBeNull();
+      return JSON.parse(await blob!.text()) as T;
+    },
+    restore() {
+      clickSpy.mockRestore();
+      Object.defineProperty(URL, "createObjectURL", {
+        configurable: true,
+        value: originalCreateObjectUrl,
+      });
+      Object.defineProperty(URL, "revokeObjectURL", {
+        configurable: true,
+        value: originalRevokeObjectUrl,
+      });
+    },
+  };
 }
 
 async function findConsolidationButtonByName(name: RegExp) {
