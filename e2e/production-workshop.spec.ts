@@ -240,6 +240,13 @@ async function approveVisibleRequirementPath(page: Page) {
       })
       .first()
       .click();
+    await requirementsPanel
+      .getByRole("button", {
+        name: "Confirm approve Requirement candidate",
+        exact: true,
+      })
+      .first()
+      .click();
     return;
   }
 

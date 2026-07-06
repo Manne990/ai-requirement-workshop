@@ -176,6 +176,12 @@ test.describe("workshop feedback loop", () => {
         exact: true,
       })
       .click();
+    await page
+      .getByRole("button", {
+        name: "Confirm approve Requirement candidate",
+        exact: true,
+      })
+      .click();
     await page.getByRole("button", { name: /generate prototype/i }).click();
     await expect(
       page

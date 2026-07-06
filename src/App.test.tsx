@@ -408,6 +408,11 @@ describe("App", () => {
         name: /approve requirement candidate/i,
       }),
     );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /confirm approve requirement candidate/i,
+      }),
+    );
     fireEvent.click(screen.getByRole("button", { name: /report/i }));
 
     const report = screen.getByRole("dialog", { name: /workshop report/i });
@@ -517,6 +522,11 @@ describe("App", () => {
 
     fireEvent.click(
       screen.getByRole("button", { name: /approve requirement candidate/i }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /confirm approve requirement candidate/i,
+      }),
     );
     await waitForTelemetryEvent("requirement.approved");
 

@@ -6,6 +6,7 @@ import {
   History,
   X,
 } from "lucide-react";
+import { useState } from "react";
 import "./RequirementsPanel.css";
 import {
   groupRequirementsByLifecycle,
@@ -186,6 +187,8 @@ function RequirementCard({
   const sourceCount =
     requirement.sourceArtifactIds.length + requirement.sourceMessageIds.length;
   const latestHistory = requirement.history.at(-1);
+  const [isApprovalConfirmationOpen, setIsApprovalConfirmationOpen] =
+    useState(false);
   const blockingFindingCount = qualityFindings.filter(
     (finding) => finding.severity === "blocker",
   ).length;
@@ -271,7 +274,9 @@ function RequirementCard({
           action="approve"
           label="Approve"
           requirement={requirement}
-          onAction={onApprove}
+          onAction={
+            onApprove ? () => setIsApprovalConfirmationOpen(true) : undefined
+          }
         />
         <ActionButton
           action="reject"
@@ -292,6 +297,47 @@ function RequirementCard({
           onAction={onBaseline}
         />
       </div>
+
+      {isApprovalConfirmationOpen ? (
+        <div
+          className="requirement-card__approval-confirmation"
+          role="group"
+          aria-label={`Approval confirmation for ${requirement.title}`}
+        >
+          <div>
+            <strong>Confirm approval</strong>
+            <span>{requirementLifecycleLabel[requirement.status]}</span>
+          </div>
+          <p>
+            Approving includes this requirement in reports and prototype inputs.
+          </p>
+          <blockquote>{requirement.statement}</blockquote>
+          <small>
+            {sourceCount} source{sourceCount === 1 ? "" : "s"} linked
+          </small>
+          <div>
+            <button
+              type="button"
+              onClick={() => {
+                onApprove?.(requirement);
+                setIsApprovalConfirmationOpen(false);
+              }}
+              aria-label={`Confirm approve ${requirement.title}`}
+            >
+              <Check aria-hidden="true" size={15} />
+              Confirm approve
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsApprovalConfirmationOpen(false)}
+              aria-label={`Cancel approve ${requirement.title}`}
+            >
+              <X aria-hidden="true" size={15} />
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
     </article>
   );
 }

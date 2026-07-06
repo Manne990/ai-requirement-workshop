@@ -51,6 +51,21 @@ describe("RequirementsPanel", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Approve Incident summary" }),
     );
+    expect(onApprove).not.toHaveBeenCalled();
+    const confirmation = screen.getByRole("group", {
+      name: /approval confirmation for incident summary/i,
+    });
+    expect(confirmation).toHaveTextContent(
+      /approving includes this requirement in reports and prototype inputs/i,
+    );
+    expect(confirmation).toHaveTextContent(
+      /the system should summarize related incidents/i,
+    );
+    fireEvent.click(
+      within(confirmation).getByRole("button", {
+        name: "Confirm approve Incident summary",
+      }),
+    );
     fireEvent.click(
       screen.getByRole("button", { name: "Reject Incident summary" }),
     );
