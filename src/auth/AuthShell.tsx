@@ -120,8 +120,10 @@ function AuthDialog({ onClose }: { onClose: () => void }) {
       }
 
       try {
-        await signIn(validation.value);
-        onClose();
+        const result = await signIn(validation.value);
+        if (result.session) {
+          onClose();
+        }
       } catch {
         return;
       }
@@ -136,8 +138,10 @@ function AuthDialog({ onClose }: { onClose: () => void }) {
       }
 
       try {
-        await register(validation.value);
-        onClose();
+        const result = await register(validation.value);
+        if (result.session) {
+          onClose();
+        }
       } catch {
         return;
       }

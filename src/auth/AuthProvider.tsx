@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { AuthContext, type AuthContextValue } from "./AuthContext";
-import { createFrontendAuthClient } from "./frontendAuthClient";
+import { createConfiguredAuthClient } from "./authClientFactory";
 import type {
   AuthClient,
   AuthOperation,
@@ -22,7 +22,7 @@ type AuthProviderProps = {
   initialSession?: AuthSession | null;
 };
 
-const defaultAuthClient = createFrontendAuthClient();
+const defaultAuthClient = createConfiguredAuthClient();
 
 export function AuthProvider({
   children,
@@ -86,6 +86,7 @@ export function AuthProvider({
         const result = await client.signIn(input);
         setSession(result.session);
         setNotice(result.message);
+        return result;
       } catch (signInError) {
         const message = authErrorMessage(signInError);
         setError(message);
@@ -106,6 +107,7 @@ export function AuthProvider({
         const result = await client.register(input);
         setSession(result.session);
         setNotice(result.message);
+        return result;
       } catch (registerError) {
         const message = authErrorMessage(registerError);
         setError(message);

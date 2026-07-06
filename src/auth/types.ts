@@ -31,7 +31,7 @@ export type ForgotPasswordInput = {
 };
 
 export type AuthActionResult = {
-  session: AuthSession;
+  session: AuthSession | null;
   message: string;
 };
 

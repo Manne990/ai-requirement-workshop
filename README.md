@@ -33,7 +33,14 @@ Use [.env.example](.env.example) as the non-secret template for local and produc
 
 ## Production Architecture And Deployment
 
-The production target is a Vercel-hosted React app with a minimal server-side BFF for Codex/OpenAI calls and Supabase as the auth, data, storage, and realtime boundary. See [docs/production-architecture.md](docs/production-architecture.md) for the full boundary, environment model, local-to-server migration path, rollout risks, and Gaia verification loop.
+The production target is a Vercel-hosted React app with a minimal server-side BFF for Codex/OpenAI calls and Supabase as the auth, data, storage, and realtime boundary. The repository now includes Vercel-compatible `/api/codex/status` and `/api/codex/workshop-turn` routes plus a shared server module used by local Vite development. See [docs/production-architecture.md](docs/production-architecture.md) for the full boundary, environment model, local-to-server migration path, rollout risks, and Gaia verification loop.
+
+Auth uses a configured adapter:
+
+- If `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are real values, the app uses Supabase Auth for register, sign in, sign out, and password reset.
+- If those values are absent or still set to placeholders, the app uses the local frontend adapter for development and CI.
+
+The Supabase dependency is lazy-loaded only when real Supabase config is present, so local anonymous workshops do not pay the production auth bundle cost.
 
 The release gate is tracked in [docs/production-readiness-checklist.md](docs/production-readiness-checklist.md), including objective pass/fail evidence, first-release non-goals, rollback expectations, and the CI-safe production smoke coverage.
 
@@ -104,7 +111,7 @@ V3 added:
 
 ## V4 Scope
 
-The current version adds:
+V4 added:
 
 - Complete workshop JSON export/import.
 - Local disk backup mirror through `/api/workshops/backup`.
@@ -113,4 +120,14 @@ The current version adds:
 - Unit tests for export/import and backup behavior.
 - Dev-server smoke coverage for the backup endpoint.
 
-No remote app database, authentication, or multi-user sync is included yet.
+## V5 Scope
+
+The current version adds production-hardening foundations:
+
+- Vercel-compatible Codex API routes with shared response validation.
+- Supabase Auth adapter for register, sign in, sign out, and password reset when production env values are configured.
+- Lazy Supabase loading to keep the default bundle smaller.
+- Optimistic chat display so human workshop input is visible while Codex is still generating a turn.
+- Regression tests for pending Codex turns, Supabase auth, and the production Codex API boundary.
+
+No production Supabase schema, RLS policy, organization data isolation, or realtime multi-user sync is included yet.

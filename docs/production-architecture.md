@@ -100,9 +100,11 @@ Recommended production routes:
 
 The current Vite plugin implements local development versions of
 `/api/codex/status`, `/api/codex/workshop-turn`, and `/api/workshops/backup`.
-Production should preserve the Codex route semantics but run them as Vercel
-server functions. `/api/workshops/backup` remains local-development-only disk
-backup behavior and should not be exposed as a production persistence path.
+The repository also includes Vercel-compatible production routes for the two
+Codex endpoints under `api/codex/`; both local and production Codex paths share
+the same server response validation module. `/api/workshops/backup` remains
+local-development-only disk backup behavior and should not be exposed as a
+production persistence path.
 
 ## Supabase Boundary
 

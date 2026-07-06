@@ -16,7 +16,8 @@ describe("createFrontendAuthClient", () => {
       password: "stable-passphrase",
     });
 
-    expect(result.session).toMatchObject({
+    expect(result.session).not.toBeNull();
+    expect(result.session!).toMatchObject({
       establishedAt: "2026-07-06T08:00:00.000Z",
       assurance: "frontend-only",
       user: {
@@ -25,7 +26,7 @@ describe("createFrontendAuthClient", () => {
         displayName: "Gaia Operator",
       },
     });
-    expect(isTokenFreeSession(result.session)).toBe(true);
+    expect(isTokenFreeSession(result.session!)).toBe(true);
     expect(JSON.stringify(result)).not.toContain("stable-passphrase");
   });
 
