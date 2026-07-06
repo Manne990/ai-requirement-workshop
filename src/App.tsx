@@ -62,6 +62,10 @@ import { PrototypePanel } from "./components/PrototypePanel";
 import { RequirementsPanel } from "./components/RequirementsPanel";
 import ConsolidationPanel from "./components/ConsolidationPanel";
 import {
+  OrganizationPanel,
+  type OrganizationPanelAccessCheck,
+} from "./components/OrganizationPanel";
+import {
   appendPendingCodexHumanMessage,
   applyCodexWorkshopTurn,
 } from "./domain/codexWorkshop";
@@ -100,6 +104,11 @@ import {
   type MissionControlTelemetryTrigger,
 } from "./domain/missionControlTelemetry";
 import type { RequirementPanelItem } from "./domain/requirements";
+import type { AuthUser } from "./auth/types";
+import type {
+  OrganizationPermission,
+  OrganizationState,
+} from "./domain/organization";
 import {
   evaluateWorkshopReadiness,
   type WorkshopReadiness,
@@ -136,6 +145,10 @@ import {
 } from "./persistence/workshopStore";
 import { workshopRepository } from "./persistence/workshopRepository";
 import {
+  organizationRepository,
+  type OrganizationMembershipContext,
+} from "./persistence/organizationRepository";
+import {
   mirrorWorkshopRecordToDisk,
   type DiskBackupResult,
 } from "./persistence/workshopBackup";
@@ -157,6 +170,31 @@ type BackupStatus = {
   diskBackedUpAt?: string;
   message: string;
 };
+
+type OrganizationRuntime = {
+  state: OrganizationState;
+  context: OrganizationMembershipContext;
+  memberCount: number;
+  accessChecks: OrganizationPanelAccessCheck[];
+};
+
+const organizationAccessCheckLabels: Record<OrganizationPermission, string> = {
+  "view-workshop": "Open workshops",
+  "comment-workshop": "Comment",
+  "create-workshop": "Create workshops",
+  "edit-workshop": "Edit workshops",
+  "facilitate-workshop": "Facilitate",
+  "invite-members": "Invite members",
+  "manage-members": "Manage members",
+  "manage-organization": "Manage organization",
+};
+
+const visibleOrganizationChecks: OrganizationPermission[] = [
+  "view-workshop",
+  "create-workshop",
+  "edit-workshop",
+  "invite-members",
+];
 
 const artifactIconMap: Record<ArtifactType, typeof ClipboardList> = {
   source: FileText,
@@ -316,6 +354,7 @@ function MissionControlAuthTelemetryBridge() {
 }
 
 function WorkshopRoom() {
+  const { session: authSession } = useAuth();
   const [initialWorkshopState] = useState(() => loadInitialWorkshopState());
   const [session, setSession] = useState<WorkshopSession>(
     initialWorkshopState.session,
@@ -341,6 +380,11 @@ function WorkshopRoom() {
   );
   const [activeWorkshopId, setActiveWorkshopIdState] = useState(session.id);
   const [isStoreReady, setIsStoreReady] = useState(false);
+  const [organizationRuntime, setOrganizationRuntime] =
+    useState<OrganizationRuntime | null>(null);
+  const [organizationError, setOrganizationError] = useState<string | null>(
+    null,
+  );
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [selectedInsightParticipantId, setSelectedInsightParticipantId] =
     useState<string | null>(null);
@@ -404,9 +448,55 @@ function WorkshopRoom() {
   useEffect(() => {
     let isMounted = true;
 
+    if (!authSession?.user) {
+      setOrganizationRuntime(null);
+      setOrganizationError(null);
+      setIsStoreReady(false);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    setIsStoreReady(false);
+    setOrganizationError(null);
+    initializeOrganizationRuntime(authSession.user)
+      .then((runtime) => {
+        if (isMounted) {
+          setOrganizationRuntime(runtime);
+        }
+      })
+      .catch((error) => {
+        if (isMounted) {
+          setOrganizationRuntime(null);
+          setOrganizationError(
+            error instanceof Error
+              ? error.message
+              : "Organization access could not be initialized.",
+          );
+          setIsStoreReady(true);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [authSession?.user]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!authSession?.user || !organizationRuntime) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    setIsStoreReady(false);
     initializeWorkshopStore(
       initialWorkshopState.session,
       initialWorkshopState.seenInsightIdsByParticipant,
+      organizationRuntime.context.organization.id,
+      authSession.user.id,
     )
       .then(({ record, summaries }) => {
         if (!isMounted) {
@@ -428,8 +518,13 @@ function WorkshopRoom() {
         setWorkshopSummaries(summaries);
         setIsStoreReady(true);
       })
-      .catch(() => {
+      .catch((error) => {
         if (isMounted) {
+          setOrganizationError(
+            error instanceof Error
+              ? error.message
+              : "Workshop access could not be initialized.",
+          );
           setIsStoreReady(true);
         }
       });
@@ -437,10 +532,10 @@ function WorkshopRoom() {
     return () => {
       isMounted = false;
     };
-  }, [initialWorkshopState]);
+  }, [authSession?.user, initialWorkshopState, organizationRuntime]);
 
   useEffect(() => {
-    if (!isStoreReady) {
+    if (!isStoreReady || !organizationRuntime) {
       return;
     }
 
@@ -459,7 +554,9 @@ function WorkshopRoom() {
       workshopOpenTriggerRef.current = "restore";
     }
 
-    const record = createWorkshopRecord(session, seenInsightIdsByParticipant);
+    const record = createWorkshopRecord(session, seenInsightIdsByParticipant, {
+      organizationId: organizationRuntime.context.organization.id,
+    });
     workshopRepository.setActiveWorkshopId(record.id);
     setActiveWorkshopIdState(record.id);
     const saveSequence = ++saveSequenceRef.current;
@@ -473,7 +570,10 @@ function WorkshopRoom() {
       .saveRecord(record)
       .then(async () => {
         const browserSavedAt = new Date().toISOString();
-        const summaries = await workshopRepository.listSummaries();
+        const summaries = filterOrganizationSummaries(
+          await workshopRepository.listSummaries(),
+          organizationRuntime.context.organization.id,
+        );
         if (saveSequence === saveSequenceRef.current) {
           setWorkshopSummaries(summaries);
           setBackupStatus({
@@ -499,6 +599,7 @@ function WorkshopRoom() {
   }, [
     createTelemetryOptions,
     isStoreReady,
+    organizationRuntime,
     seenInsightIdsByParticipant,
     session,
   ]);
@@ -652,9 +753,11 @@ function WorkshopRoom() {
   }, []);
 
   const handleExportWorkshop = useCallback(() => {
-    const record = createWorkshopRecord(session, seenInsightIdsByParticipant);
+    const record = createWorkshopRecord(session, seenInsightIdsByParticipant, {
+      organizationId: organizationRuntime?.context.organization.id,
+    });
     downloadWorkshopRecord(record);
-  }, [seenInsightIdsByParticipant, session]);
+  }, [organizationRuntime, seenInsightIdsByParticipant, session]);
 
   const handleImportWorkshopClick = useCallback(() => {
     importInputRef.current?.click();
@@ -668,7 +771,17 @@ function WorkshopRoom() {
       }
 
       try {
-        const record = parseWorkshopRecordExport(await file.text());
+        const organizationId = organizationRuntime?.context.organization.id;
+        const parsedRecord = parseWorkshopRecordExport(await file.text());
+        if (
+          organizationId &&
+          parsedRecord.organizationId &&
+          parsedRecord.organizationId !== organizationId
+        ) {
+          throw new Error("Imported workshop belongs to another organization.");
+        }
+
+        const record = scopeWorkshopRecord(parsedRecord, organizationId);
         await workshopRepository.saveRecord(record);
         workshopRepository.setActiveWorkshopId(record.id);
         workshopOpenTriggerRef.current = "user";
@@ -678,7 +791,12 @@ function WorkshopRoom() {
         setSeenInsightIdsByParticipant(record.seenInsightIdsByParticipant);
         setSelectedInsightParticipantId(null);
         setActiveWorkshopIdState(record.id);
-        setWorkshopSummaries(await workshopRepository.listSummaries());
+        setWorkshopSummaries(
+          filterOrganizationSummaries(
+            await workshopRepository.listSummaries(),
+            organizationId,
+          ),
+        );
         setBackupStatus({
           state: "saved",
           browserSavedAt: new Date().toISOString(),
@@ -696,24 +814,41 @@ function WorkshopRoom() {
         }
       }
     },
-    [],
+    [organizationRuntime],
   );
 
-  const handleOpenWorkshop = useCallback(async (workshopId: string) => {
-    const record = await workshopRepository.loadRecord(workshopId);
-    if (!record) {
-      return;
-    }
+  const handleOpenWorkshop = useCallback(
+    async (workshopId: string) => {
+      const organizationId = organizationRuntime?.context.organization.id;
+      const record = await workshopRepository.loadRecord(workshopId);
+      if (!record) {
+        return;
+      }
 
-    workshopOpenTriggerRef.current = "user";
-    setSession(record.session);
-    setPendingAttachments([]);
-    setDraft("");
-    setSeenInsightIdsByParticipant(record.seenInsightIdsByParticipant);
-    setSelectedInsightParticipantId(null);
-    setActiveWorkshopIdState(record.id);
-    workshopRepository.setActiveWorkshopId(record.id);
-  }, []);
+      if (
+        organizationId &&
+        record.organizationId &&
+        record.organizationId !== organizationId
+      ) {
+        setBackupStatus({
+          state: "failed",
+          message: "Workshop belongs to another organization.",
+        });
+        return;
+      }
+
+      const scopedRecord = scopeWorkshopRecord(record, organizationId);
+      workshopOpenTriggerRef.current = "user";
+      setSession(scopedRecord.session);
+      setPendingAttachments([]);
+      setDraft("");
+      setSeenInsightIdsByParticipant(scopedRecord.seenInsightIdsByParticipant);
+      setSelectedInsightParticipantId(null);
+      setActiveWorkshopIdState(scopedRecord.id);
+      workshopRepository.setActiveWorkshopId(scopedRecord.id);
+    },
+    [organizationRuntime],
+  );
 
   const handleAttachmentPickerClick = useCallback(() => {
     attachmentInputRef.current?.click();
@@ -1280,6 +1415,15 @@ function WorkshopRoom() {
         </section>
 
         <section className="operations-pane" aria-label="Workshop operations">
+          <OrganizationPanel
+            membershipContext={organizationRuntime?.context ?? null}
+            memberCount={organizationRuntime?.memberCount ?? 0}
+            invites={organizationRuntime?.state.invites ?? []}
+            accessChecks={organizationRuntime?.accessChecks ?? []}
+          />
+          {organizationError ? (
+            <p className="composer-error">{organizationError}</p>
+          ) : null}
           <PrototypePanel
             session={session}
             modelName={codexStatus.model}
@@ -2043,28 +2187,151 @@ function isInitialWorkshopSession(
 async function initializeWorkshopStore(
   fallbackSession: WorkshopSession,
   fallbackSeenInsightIdsByParticipant: SeenInsightIdsByParticipant,
+  organizationId: string,
+  userId: string,
 ): Promise<{ record: WorkshopRecord; summaries: WorkshopSummary[] }> {
   const activeWorkshopId = workshopRepository.getActiveWorkshopId();
-  const summaries = await workshopRepository.listSummaries();
-  const activeRecord = activeWorkshopId
-    ? await workshopRepository.loadRecord(activeWorkshopId)
-    : null;
+  const summaries = filterOrganizationSummaries(
+    await workshopRepository.listSummaries(),
+    organizationId,
+  );
+  const activeRecord = ensureRecordForOrganization(
+    activeWorkshopId
+      ? await workshopRepository.loadRecord(activeWorkshopId)
+      : null,
+    organizationId,
+  );
   const latestRecord = summaries[0]
-    ? await workshopRepository.loadRecord(summaries[0].id)
+    ? ensureRecordForOrganization(
+        await workshopRepository.loadRecord(summaries[0].id),
+        organizationId,
+      )
     : null;
   const record =
     activeRecord ??
     latestRecord ??
-    createWorkshopRecord(fallbackSession, fallbackSeenInsightIdsByParticipant);
+    createWorkshopRecord(fallbackSession, fallbackSeenInsightIdsByParticipant, {
+      organizationId,
+    });
 
+  await organizationRepository.assertWorkshopAccess(
+    userId,
+    { id: record.id, organizationId },
+    "edit-workshop",
+  );
   await workshopRepository.saveRecord(record);
   workshopRepository.setActiveWorkshopId(record.id);
 
-  const nextSummaries = await workshopRepository.listSummaries();
+  const nextSummaries = filterOrganizationSummaries(
+    await workshopRepository.listSummaries(),
+    organizationId,
+  );
   return {
     record,
     summaries:
       nextSummaries.length > 0 ? nextSummaries : [toWorkshopSummary(record)],
+  };
+}
+
+async function initializeOrganizationRuntime(
+  user: AuthUser,
+): Promise<OrganizationRuntime> {
+  let context = await organizationRepository.getActiveOrganizationForUser(
+    user.id,
+  );
+
+  if (!context) {
+    const created = await organizationRepository.createOrganization({
+      name: `${user.displayName}'s organization`,
+      ownerUserId: user.id,
+    });
+    const organization = created.organizations.find(
+      (candidate) => candidate.createdByUserId === user.id,
+    );
+    if (!organization) {
+      throw new Error(
+        "Could not create an organization for the signed-in user.",
+      );
+    }
+    await organizationRepository.setActiveOrganizationId(
+      user.id,
+      organization.id,
+    );
+    context = await organizationRepository.getActiveOrganizationForUser(
+      user.id,
+    );
+  }
+
+  if (!context) {
+    throw new Error("No active organization is available for this account.");
+  }
+
+  const state = await organizationRepository.loadState();
+  const memberCount = state.memberships.filter(
+    (membership) =>
+      membership.organizationId === context.organization.id &&
+      membership.status === "active",
+  ).length;
+  const accessChecks = await Promise.all(
+    visibleOrganizationChecks.map(async (permission) => ({
+      permission,
+      label: organizationAccessCheckLabels[permission],
+      decision: await organizationRepository.checkOrganizationAccess(
+        user.id,
+        context.organization.id,
+        permission,
+      ),
+    })),
+  );
+
+  return {
+    state,
+    context,
+    memberCount,
+    accessChecks,
+  };
+}
+
+function filterOrganizationSummaries(
+  summaries: WorkshopSummary[],
+  organizationId: string | undefined,
+) {
+  if (!organizationId) {
+    return summaries;
+  }
+
+  return summaries.filter(
+    (summary) =>
+      !summary.organizationId || summary.organizationId === organizationId,
+  );
+}
+
+function ensureRecordForOrganization(
+  record: WorkshopRecord | null,
+  organizationId: string,
+) {
+  if (!record) {
+    return null;
+  }
+
+  if (record.organizationId && record.organizationId !== organizationId) {
+    return null;
+  }
+
+  return scopeWorkshopRecord(record, organizationId);
+}
+
+function scopeWorkshopRecord(
+  record: WorkshopRecord,
+  organizationId: string | undefined,
+): WorkshopRecord {
+  if (!organizationId || record.organizationId === organizationId) {
+    return record;
+  }
+
+  return {
+    ...record,
+    organizationId,
   };
 }
 

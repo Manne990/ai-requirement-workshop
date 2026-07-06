@@ -4,6 +4,7 @@ export type SeenInsightIdsByParticipant = Record<string, string[]>;
 
 export type WorkshopRecord = {
   id: string;
+  organizationId?: string;
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -13,6 +14,7 @@ export type WorkshopRecord = {
 
 export type WorkshopSummary = {
   id: string;
+  organizationId?: string;
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -42,6 +44,10 @@ export type WorkshopRecordExportProvenance = {
     prototypes: number;
     prototypeVersions: number;
   };
+};
+
+export type CreateWorkshopRecordOptions = {
+  organizationId?: string;
 };
 
 const dbName = "ai-requirement-workshop";
@@ -91,6 +97,7 @@ export function setActiveWorkshopId(workshopId: string) {
 export function createWorkshopRecord(
   session: WorkshopSession,
   seenInsightIdsByParticipant: SeenInsightIdsByParticipant = {},
+  options: CreateWorkshopRecordOptions = {},
 ): WorkshopRecord {
   const firstHumanMessage = session.messages.find(
     (message) => message.kind === "human-input",
@@ -99,6 +106,7 @@ export function createWorkshopRecord(
 
   return {
     id: session.id,
+    organizationId: normalizeOptionalText(options.organizationId),
     title,
     createdAt: session.messages[0]?.createdAt ?? session.updatedAt,
     updatedAt: session.updatedAt,
@@ -115,6 +123,7 @@ export function createWorkshopRecord(
 export function toWorkshopSummary(record: WorkshopRecord): WorkshopSummary {
   return {
     id: record.id,
+    organizationId: record.organizationId,
     title: record.title,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
@@ -183,8 +192,10 @@ function getRecordFromDb(
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(workshopStoreName, "readonly");
     const request = transaction.objectStore(workshopStoreName).get(id);
-    request.onsuccess = () =>
-      resolve((request.result as WorkshopRecord | undefined) ?? null);
+    request.onsuccess = () => {
+      const result = request.result as unknown;
+      resolve(result ? normalizeWorkshopRecord(result) : null);
+    };
     request.onerror = () => reject(request.error);
   });
 }
@@ -193,7 +204,8 @@ function getAllRecordsFromDb(db: IDBDatabase): Promise<WorkshopRecord[]> {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(workshopStoreName, "readonly");
     const request = transaction.objectStore(workshopStoreName).getAll();
-    request.onsuccess = () => resolve(request.result as WorkshopRecord[]);
+    request.onsuccess = () =>
+      resolve(normalizeWorkshopRecordList(request.result));
     request.onerror = () => reject(request.error);
   });
 }
@@ -213,7 +225,7 @@ function loadFallbackRecords(): WorkshopRecord[] {
     if (!raw) {
       return [];
     }
-    return JSON.parse(raw) as WorkshopRecord[];
+    return normalizeWorkshopRecordList(JSON.parse(raw) as unknown);
   } catch {
     return [];
   }
@@ -291,6 +303,7 @@ function normalizeWorkshopRecord(value: unknown): WorkshopRecord {
 
   return {
     id,
+    organizationId: normalizeOptionalText(value.organizationId),
     title,
     createdAt,
     updatedAt,
@@ -315,6 +328,20 @@ function normalizeWorkshopRecord(value: unknown): WorkshopRecord {
       value.seenInsightIdsByParticipant,
     ),
   };
+}
+
+function normalizeWorkshopRecordList(value: unknown): WorkshopRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((candidate) => {
+    try {
+      return [normalizeWorkshopRecord(candidate)];
+    } catch {
+      return [];
+    }
+  });
 }
 
 function normalizeSeenInsightIds(value: unknown): SeenInsightIdsByParticipant {
@@ -346,6 +373,10 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function stringOr(value: unknown, fallback = "") {
   return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function normalizeOptionalText(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function arrayOr<T = unknown>(value: unknown): T[] {

@@ -186,6 +186,7 @@ describe("supabaseWorkshopStore", () => {
     await expect(store.listSummaries()).resolves.toEqual([
       expect.objectContaining({
         id: "workshop-server-key",
+        organizationId: "org-1",
         messageCount: record.session.messages.length,
       }),
     ]);
@@ -193,6 +194,7 @@ describe("supabaseWorkshopStore", () => {
       store.loadRecord("workshop-server-key"),
     ).resolves.toMatchObject({
       id: "workshop-server-key",
+      organizationId: "org-1",
       session: expect.objectContaining({
         id: "workshop-server-key",
         messages: expect.arrayContaining([

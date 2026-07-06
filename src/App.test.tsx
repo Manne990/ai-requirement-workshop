@@ -286,6 +286,42 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
+  it("creates an organization context and scopes saved workshops to it", async () => {
+    render(<App />);
+    await registerForWorkshopAccess();
+
+    expect(
+      await screen.findByRole("region", { name: /organization access/i }),
+    ).toHaveTextContent("Workshop Tester's organization");
+    expect(screen.getAllByText(/open workshops/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/edit workshops/i).length).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByLabelText(/describe, challenge, or refine/i), {
+      target: {
+        value:
+          "A product owner needs organization-scoped workshops before inviting colleagues.",
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await screen.findAllByText(/organization-scoped workshops/i);
+    await waitFor(() => {
+      const records = JSON.parse(
+        window.localStorage.getItem(
+          "ai-requirement-workshop:v3-workshop-records",
+        ) ?? "[]",
+      ) as Array<{ organizationId?: string; title?: string }>;
+      expect(records).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            organizationId: "organization-001",
+            title: expect.stringContaining("organization-scoped workshops"),
+          }),
+        ]),
+      );
+    });
+  });
+
   it("attaches files to a workshop turn as source artifacts", async () => {
     render(<App />);
     await registerForWorkshopAccess();

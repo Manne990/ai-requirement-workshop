@@ -12,9 +12,15 @@ describe("workshopStore export format", () => {
       "2026-07-06T08:00:00.000Z",
       "workshop-export-test",
     );
-    const record = createWorkshopRecord(session, {
-      "agent-quality": ["artifact-1"],
-    });
+    const record = createWorkshopRecord(
+      session,
+      {
+        "agent-quality": ["artifact-1"],
+      },
+      {
+        organizationId: "organization-001",
+      },
+    );
 
     const exported = createWorkshopRecordExport(
       record,
@@ -23,6 +29,7 @@ describe("workshopStore export format", () => {
     const parsed = parseWorkshopRecordExport(JSON.stringify(exported));
 
     expect(parsed.id).toBe("workshop-export-test");
+    expect(parsed.organizationId).toBe("organization-001");
     expect(parsed.session.id).toBe("workshop-export-test");
     expect(parsed.seenInsightIdsByParticipant["agent-quality"]).toEqual([
       "artifact-1",

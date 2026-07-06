@@ -17,6 +17,7 @@ type SupabaseWorkshopStoreOptions = {
 
 type WorkshopRow = {
   id?: string;
+  organization_id?: string | null;
   record_key?: string | null;
   title?: string | null;
   created_at?: string | null;
@@ -70,7 +71,7 @@ export function createSupabaseWorkshopRecordStore({
         const { data, error } = await client
           .from("workshops")
           .select(
-            "id, record_key, title, created_at, updated_at, session_snapshot, seen_insight_ids_by_participant",
+            "id, organization_id, record_key, title, created_at, updated_at, session_snapshot, seen_insight_ids_by_participant",
           )
           .eq("organization_id", orgId)
           .order("updated_at", { ascending: false });
@@ -92,7 +93,7 @@ export function createSupabaseWorkshopRecordStore({
         const { data, error } = await client
           .from("workshops")
           .select(
-            "id, record_key, title, created_at, updated_at, session_snapshot, seen_insight_ids_by_participant",
+            "id, organization_id, record_key, title, created_at, updated_at, session_snapshot, seen_insight_ids_by_participant",
           )
           .eq("organization_id", orgId)
           .eq("record_key", id)
@@ -374,6 +375,7 @@ function rowToWorkshopRecord(row: WorkshopRow): WorkshopRecord {
 
   return {
     id: recordKey,
+    organizationId: stringOr(row.organization_id) || undefined,
     title,
     createdAt,
     updatedAt,
