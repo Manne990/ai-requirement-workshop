@@ -41,6 +41,7 @@ import {
   type FormEvent,
 } from "react";
 import "./App.css";
+import { layoutArtifacts } from "./artifactLayout";
 import {
   createInitialWorkshopSession,
   generateWorkshopReport,
@@ -145,25 +146,28 @@ function App() {
     [],
   );
 
-  const artifactNodes = useMemo<Node<ArtifactNodeData>[]>(
-    () =>
-      session.artifacts.map((artifact, index) => ({
-        id: artifact.id,
-        type: "artifact",
-        position: artifactPosition(artifact, index, session.visualizationMode),
-        data: {
-          artifact,
-          onSelect: handleSelectArtifact,
-          onStatusChange: handleStatusChange,
-        },
-      })),
-    [
-      handleSelectArtifact,
-      handleStatusChange,
+  const artifactNodes = useMemo<Node<ArtifactNodeData>[]>(() => {
+    const artifactPositions = layoutArtifacts(
       session.artifacts,
       session.visualizationMode,
-    ],
-  );
+    );
+
+    return session.artifacts.map((artifact) => ({
+      id: artifact.id,
+      type: "artifact",
+      position: artifactPositions[artifact.id],
+      data: {
+        artifact,
+        onSelect: handleSelectArtifact,
+        onStatusChange: handleStatusChange,
+      },
+    }));
+  }, [
+    handleSelectArtifact,
+    handleStatusChange,
+    session.artifacts,
+    session.visualizationMode,
+  ]);
 
   const artifactEdges = useMemo<Edge[]>(
     () =>
@@ -175,7 +179,21 @@ function App() {
         markerEnd: {
           type: MarkerType.ArrowClosed,
         },
+        labelBgBorderRadius: 6,
+        labelBgPadding: [6, 4],
+        labelBgStyle: {
+          fill: "rgba(5, 10, 14, 0.88)",
+          fillOpacity: 0.88,
+        },
+        labelStyle: {
+          fill: "#e2e8f0",
+          fontSize: 12,
+          fontWeight: 750,
+        },
         className: "artifact-edge",
+        style: {
+          strokeWidth: 2,
+        },
       })),
     [session.links],
   );
@@ -582,46 +600,6 @@ function downloadReport(report: WorkshopReport) {
   anchor.download = "ai-requirement-workshop-report.md";
   anchor.click();
   URL.revokeObjectURL(url);
-}
-
-function artifactPosition(
-  artifact: WorkshopArtifact,
-  index: number,
-  mode: VisualizationMode,
-): { x: number; y: number } {
-  if (mode === "requirements") {
-    const typeOrder: ArtifactType[] = [
-      "goal",
-      "problem",
-      "actor",
-      "requirement",
-      "question",
-      "decision",
-      "assumption",
-      "risk",
-      "flow-step",
-    ];
-    const column = Math.max(0, typeOrder.indexOf(artifact.type));
-    return { x: column * 270, y: (index % 3) * 210 };
-  }
-
-  if (mode === "risks") {
-    const riskLane =
-      artifact.type === "risk" || artifact.type === "assumption" ? 0 : 1;
-    return {
-      x: (index % 5) * 290,
-      y: riskLane * 260 + Math.floor(index / 5) * 120,
-    };
-  }
-
-  if (mode === "journey") {
-    return {
-      x: index * 260,
-      y: artifact.type === "actor" ? 10 : 230 + (index % 2) * 120,
-    };
-  }
-
-  return { x: (index % 4) * 300, y: Math.floor(index / 4) * 240 };
 }
 
 function formatTime(isoDate: string) {
