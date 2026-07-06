@@ -67,6 +67,85 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows the human message immediately while the Codex turn is pending", async () => {
+    let resolveWorkshopTurn: (() => void) | undefined;
+    const pendingFetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+
+        if (url.endsWith("/api/codex/status")) {
+          return jsonResponse({
+            configured: true,
+            model: "gpt-5.5",
+            message: "Local Codex token loaded from environment.",
+          });
+        }
+
+        if (url.endsWith("/api/codex/workshop-turn")) {
+          const body = JSON.parse(String(init?.body ?? "{}")) as {
+            message?: string;
+          };
+          return await new Promise<Response>((resolve) => {
+            resolveWorkshopTurn = () =>
+              resolve(
+                jsonResponse({
+                  turn: {
+                    facilitatorMessage:
+                      "Jag har fångat detta. Vilket mätbart beteende visar att dashboarden löser problemet?",
+                    artifacts: [
+                      {
+                        type: "problem",
+                        title: "Digitalt övervakningsbehov",
+                        content: body.message ?? "",
+                        createdBy: "facilitator",
+                        tags: ["from-test"],
+                      },
+                    ],
+                  },
+                }),
+              );
+          });
+        }
+
+        if (url.endsWith("/api/workshops/backup")) {
+          return jsonResponse({
+            backedUpAt: "2026-07-06T08:30:00.000Z",
+            message: "Saved in browser and backed up to disk.",
+          });
+        }
+
+        return jsonResponse({ error: "Unexpected endpoint." }, 404);
+      },
+    );
+    vi.stubGlobal("fetch", pendingFetchMock);
+
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText(/describe, challenge, or refine/i), {
+      target: {
+        value:
+          "Här på SOS-alarm behöver vi bygga ett dashboard-system för larmsystem.",
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    expect(
+      await screen.findByText(/Här på SOS-alarm behöver vi bygga/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /codex thinking/i }),
+    ).toBeDisabled();
+    expect(
+      screen.queryByText(/Vilket mätbart beteende visar/i),
+    ).not.toBeInTheDocument();
+
+    resolveWorkshopTurn?.();
+
+    expect(
+      await screen.findByText(/Vilket mätbart beteende visar/i),
+    ).toBeInTheDocument();
+  });
+
   it("generates a prototype preview and records prototype feedback", async () => {
     render(<App />);
 
@@ -248,8 +327,8 @@ describe("App", () => {
     });
 
     expect(
-      await screen.findByText(/imported workshop about connected alarm/i),
-    ).toBeInTheDocument();
+      await screen.findAllByText(/imported workshop about connected alarm/i),
+    ).not.toHaveLength(0);
     expect(await screen.findAllByText(/backed up/i)).not.toHaveLength(0);
   });
 

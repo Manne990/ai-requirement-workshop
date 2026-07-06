@@ -56,6 +56,37 @@ const validParticipantIds = Object.values(participantIds);
 
 const now = () => new Date().toISOString();
 
+export function appendPendingCodexHumanMessage(
+  session: WorkshopSession,
+  body: string,
+  attachments: AttachmentDraft[] = [],
+  createdAt = now(),
+): WorkshopSession {
+  const trimmed = body.trim() || attachmentOnlyMessage(attachments);
+  if (!trimmed && attachments.length === 0) {
+    return session;
+  }
+
+  if (findPendingHumanMessage(session, trimmed)) {
+    return session;
+  }
+
+  const humanMessage: WorkshopMessage = {
+    id: createId("message", session.messages.length + 1),
+    participantId: participantIds.human,
+    kind: "human-input",
+    body: trimmed,
+    createdAt,
+    relatedArtifactIds: [],
+  };
+
+  return {
+    ...session,
+    messages: [...session.messages, humanMessage],
+    updatedAt: createdAt,
+  };
+}
+
 export function applyCodexWorkshopTurn(
   session: WorkshopSession,
   body: string,
@@ -68,18 +99,22 @@ export function applyCodexWorkshopTurn(
     return session;
   }
 
-  const messageIndex = session.messages.length + 1;
+  const pendingHumanMessage = findPendingHumanMessage(session, trimmed);
+  const facilitatorMessageIndex =
+    session.messages.length + (pendingHumanMessage ? 1 : 2);
   const language = detectWorkshopLanguage(
     `${trimmed} ${turn.facilitatorMessage}`,
   );
-  const humanMessage: WorkshopMessage = {
-    id: createId("message", messageIndex),
-    participantId: participantIds.human,
-    kind: "human-input",
-    body: trimmed,
-    createdAt,
-    relatedArtifactIds: [],
-  };
+  const humanMessage: WorkshopMessage = pendingHumanMessage
+    ? { ...pendingHumanMessage, body: trimmed, createdAt }
+    : {
+        id: createId("message", session.messages.length + 1),
+        participantId: participantIds.human,
+        kind: "human-input",
+        body: trimmed,
+        createdAt,
+        relatedArtifactIds: [],
+      };
 
   const normalizedAttachments = normalizeAttachments(
     attachments,
@@ -127,7 +162,7 @@ export function applyCodexWorkshopTurn(
   humanMessage.relatedArtifactIds = artifacts.map((artifact) => artifact.id);
 
   const facilitatorMessage: WorkshopMessage = {
-    id: createId("message", messageIndex + 1),
+    id: createId("message", facilitatorMessageIndex),
     participantId: participantIds.facilitator,
     kind: "facilitator-guidance",
     body: normalizeFacilitatorMessage(
@@ -150,7 +185,14 @@ export function applyCodexWorkshopTurn(
 
   return {
     ...session,
-    messages: [...session.messages, humanMessage, facilitatorMessage],
+    messages: [
+      ...(pendingHumanMessage
+        ? session.messages.map((message) =>
+            message.id === pendingHumanMessage.id ? humanMessage : message,
+          )
+        : [...session.messages, humanMessage]),
+      facilitatorMessage,
+    ],
     attachments: [...(session.attachments ?? []), ...normalizedAttachments],
     artifacts: [...session.artifacts, ...artifacts],
     links: [
@@ -165,6 +207,18 @@ export function applyCodexWorkshopTurn(
     selectedArtifactId,
     updatedAt: createdAt,
   };
+}
+
+function findPendingHumanMessage(session: WorkshopSession, body: string) {
+  return [...session.messages]
+    .reverse()
+    .find(
+      (message) =>
+        message.kind === "human-input" &&
+        message.participantId === participantIds.human &&
+        message.body === body &&
+        message.relatedArtifactIds.length === 0,
+    );
 }
 
 function normalizeCodexArtifacts(

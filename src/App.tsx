@@ -56,7 +56,10 @@ import {
   type CodexStatus,
 } from "./codex/client";
 import { PrototypePanel } from "./components/PrototypePanel";
-import { applyCodexWorkshopTurn } from "./domain/codexWorkshop";
+import {
+  appendPendingCodexHumanMessage,
+  applyCodexWorkshopTurn,
+} from "./domain/codexWorkshop";
 import type { AttachmentDraft } from "./domain/attachments";
 import {
   generatePrototypeFromWorkshop,
@@ -222,9 +225,19 @@ function App() {
         if (!isMounted) {
           return;
         }
-        setSession(record.session);
-        setSeenInsightIdsByParticipant(record.seenInsightIdsByParticipant);
-        setActiveWorkshopIdState(record.id);
+        setSession((current) =>
+          isInitialWorkshopSession(current, initialWorkshopState.session)
+            ? record.session
+            : current,
+        );
+        setSeenInsightIdsByParticipant((current) =>
+          Object.keys(current).length === 0
+            ? record.seenInsightIdsByParticipant
+            : current,
+        );
+        setActiveWorkshopIdState((current) =>
+          current === initialWorkshopState.session.id ? record.id : current,
+        );
         setWorkshopSummaries(summaries);
         setIsStoreReady(true);
       })
@@ -339,9 +352,18 @@ function App() {
     }
 
     const attachmentsForTurn = pendingAttachments;
+    const submittedAt = new Date().toISOString();
     setDraft("");
     setPendingAttachments([]);
     setCodexError(null);
+    setSession((current) =>
+      appendPendingCodexHumanMessage(
+        current,
+        message,
+        attachmentsForTurn,
+        submittedAt,
+      ),
+    );
     setIsCodexThinking(true);
 
     try {
@@ -351,7 +373,13 @@ function App() {
         attachmentsForTurn,
       );
       setSession((current) =>
-        applyCodexWorkshopTurn(current, message, turn, attachmentsForTurn),
+        applyCodexWorkshopTurn(
+          current,
+          message,
+          turn,
+          attachmentsForTurn,
+          submittedAt,
+        ),
       );
     } catch (error) {
       setDraft(message);
@@ -1385,6 +1413,19 @@ function loadInitialWorkshopState() {
     session: loadSession(),
     seenInsightIdsByParticipant: loadSeenInsightIdsByParticipant(),
   };
+}
+
+function isInitialWorkshopSession(
+  current: WorkshopSession,
+  initial: WorkshopSession,
+) {
+  return (
+    current.id === initial.id &&
+    current.updatedAt === initial.updatedAt &&
+    current.messages.length === initial.messages.length &&
+    current.artifacts.length === initial.artifacts.length &&
+    current.attachments.length === initial.attachments.length
+  );
 }
 
 async function initializeWorkshopStore(
