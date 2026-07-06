@@ -4,6 +4,8 @@ import {
   createInitialWorkshopSession,
   submitHumanMessage,
 } from "../domain/workshop";
+import { auditRequirementHistory } from "../domain/audit";
+import { approveRequirement, createRequirement } from "../domain/requirements";
 import { createWorkshopRecord } from "./workshopStore";
 import {
   createSupabaseWorkshopRecordStore,
@@ -203,6 +205,66 @@ describe("supabaseWorkshopStore", () => {
           }),
         ]),
       }),
+    });
+  });
+
+  it("preserves requirement ledger and audit events in server-backed snapshots", async () => {
+    const fake = createFakeSupabase();
+    const store = createSupabaseWorkshopRecordStore({ supabase: fake.client });
+    const requirement = approveRequirement(
+      createRequirement({
+        id: "req-1",
+        title: "Visa larmstatus per kund",
+        statement:
+          "Som övervakare vill jag se larmstatus per kund så att driftproblem kan prioriteras.",
+        createdAt: "2026-07-06T20:00:00.000Z",
+        createdBy: "facilitator",
+        state: "candidate",
+        rationale: "Kundvy är den primära beslutsytan.",
+        sourceRefs: [{ artifactId: "artifact-1" }],
+        acceptanceCriteria: [
+          "Dashboarden visar minst aktivt larm och kundnamn.",
+        ],
+      }),
+      {
+        actorId: "facilitator",
+        at: "2026-07-06T20:01:00.000Z",
+        rationale: "Approved during requirement review.",
+      },
+    );
+    const auditEvents = auditRequirementHistory(requirement, {
+      organizationId: "org-1",
+      workshopId: "workshop-ledger-key",
+      sequenceStart: 1,
+    });
+    const record = createWorkshopRecord(
+      submitHumanMessage(
+        createInitialWorkshopSession(
+          "2026-07-06T19:58:00.000Z",
+          "workshop-ledger-key",
+        ),
+        "Vi behöver bygga en dashboard för kundlarm.",
+        "2026-07-06T19:59:00.000Z",
+      ),
+      {},
+      {
+        requirements: [requirement],
+        auditEvents,
+      },
+    );
+
+    await store.saveRecord(record);
+
+    expect(fake.state.workshops["workshop-ledger-key"]).toMatchObject({
+      requirements_snapshot: [requirement],
+      audit_events_snapshot: auditEvents,
+    });
+    await expect(
+      store.loadRecord("workshop-ledger-key"),
+    ).resolves.toMatchObject({
+      id: "workshop-ledger-key",
+      requirements: [requirement],
+      auditEvents,
     });
   });
 

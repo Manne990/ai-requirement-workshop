@@ -5,6 +5,8 @@ import {
   type SeenInsightIdsByParticipant,
   type WorkshopRecord,
 } from "./workshopStore";
+import type { AuditEvent } from "../domain/audit";
+import type { Requirement } from "../domain/requirements";
 import type { WorkshopSession } from "../domain/workshop";
 
 type BrowserEnv = Record<string, string | undefined>;
@@ -23,8 +25,13 @@ type WorkshopRow = {
   created_at?: string | null;
   updated_at?: string | null;
   session_snapshot?: unknown;
+  requirements_snapshot?: unknown;
+  audit_events_snapshot?: unknown;
   seen_insight_ids_by_participant?: unknown;
 };
+
+const workshopRecordSelect =
+  "id, organization_id, record_key, title, created_at, updated_at, session_snapshot, requirements_snapshot, audit_events_snapshot, seen_insight_ids_by_participant";
 
 type OrganizationRole = "owner" | "facilitator" | "participant" | "viewer";
 
@@ -70,9 +77,7 @@ export function createSupabaseWorkshopRecordStore({
         const { id: orgId } = await organizationAccess();
         const { data, error } = await client
           .from("workshops")
-          .select(
-            "id, organization_id, record_key, title, created_at, updated_at, session_snapshot, seen_insight_ids_by_participant",
-          )
+          .select(workshopRecordSelect)
           .eq("organization_id", orgId)
           .order("updated_at", { ascending: false });
 
@@ -92,9 +97,7 @@ export function createSupabaseWorkshopRecordStore({
         const { id: orgId } = await organizationAccess();
         const { data, error } = await client
           .from("workshops")
-          .select(
-            "id, organization_id, record_key, title, created_at, updated_at, session_snapshot, seen_insight_ids_by_participant",
-          )
+          .select(workshopRecordSelect)
           .eq("organization_id", orgId)
           .eq("record_key", id)
           .limit(1);
@@ -128,6 +131,8 @@ export function createSupabaseWorkshopRecordStore({
               created_by: access.user.id,
               updated_at: record.updatedAt,
               session_snapshot: record.session,
+              requirements_snapshot: record.requirements,
+              audit_events_snapshot: record.auditEvents,
               seen_insight_ids_by_participant:
                 record.seenInsightIdsByParticipant,
             },
@@ -387,8 +392,8 @@ function rowToWorkshopRecord(row: WorkshopRow): WorkshopRecord {
       prototypes: session.prototypes ?? [],
       updatedAt,
     },
-    requirements: [],
-    auditEvents: [],
+    requirements: arrayOr<Requirement>(row.requirements_snapshot),
+    auditEvents: arrayOr<AuditEvent>(row.audit_events_snapshot),
     seenInsightIdsByParticipant: normalizeSeenInsights(
       row.seen_insight_ids_by_participant,
     ),
@@ -449,6 +454,10 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function stringOr(value: unknown, fallback = "") {
   return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function arrayOr<T = unknown>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
 }
 
 function throwSupabaseError(error: {

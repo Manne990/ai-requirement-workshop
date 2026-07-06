@@ -67,6 +67,8 @@ describe("Supabase production schema migration", () => {
   it("stores durable workshop snapshots for resumable sessions", () => {
     expect(migration).toContain("record_key text");
     expect(migration).toContain("session_snapshot jsonb");
+    expect(migration).toContain("requirements_snapshot jsonb");
+    expect(migration).toContain("audit_events_snapshot jsonb");
     expect(migration).toContain("seen_insight_ids_by_participant jsonb");
     expect(migration).toContain("workshops_org_record_key_idx");
   });

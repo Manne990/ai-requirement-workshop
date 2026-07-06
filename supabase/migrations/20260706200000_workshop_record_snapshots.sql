@@ -6,6 +6,8 @@
 alter table public.workshops
   add column if not exists record_key text,
   add column if not exists session_snapshot jsonb not null default '{}'::jsonb,
+  add column if not exists requirements_snapshot jsonb not null default '[]'::jsonb,
+  add column if not exists audit_events_snapshot jsonb not null default '[]'::jsonb,
   add column if not exists seen_insight_ids_by_participant jsonb not null default '{}'::jsonb;
 
 create unique index if not exists workshops_org_record_key_idx
