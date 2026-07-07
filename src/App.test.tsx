@@ -365,9 +365,14 @@ describe("App", () => {
     render(<App />);
     await registerForWorkshopAccess();
 
-    expect(
-      await screen.findByRole("region", { name: /organization access/i }),
-    ).toHaveTextContent("Workshop Tester's organization");
+    const organizationRegion = await screen.findByRole("region", {
+      name: /organization access/i,
+    });
+    await waitFor(() =>
+      expect(organizationRegion).toHaveTextContent(
+        "Workshop Tester's organization",
+      ),
+    );
     expect(screen.getAllByText(/open workshops/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/edit workshops/i).length).toBeGreaterThan(0);
 

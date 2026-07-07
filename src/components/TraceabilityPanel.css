@@ -1,0 +1,209 @@
+.traceability-panel {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+  color: var(--color-text, #dbe7ef);
+}
+
+.traceability-panel__header,
+.traceability-panel__summary,
+.traceability-row__chips,
+.traceability-panel__metric {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.traceability-panel__header {
+  justify-content: space-between;
+}
+
+.traceability-panel__eyebrow {
+  margin: 0 0 4px;
+  color: var(--color-muted, #91a4b7);
+  font-size: 0.72rem;
+  font-weight: 780;
+  text-transform: uppercase;
+}
+
+.traceability-panel h2 {
+  margin: 0;
+  color: var(--color-heading, #f7fbff);
+  font-size: 1.05rem;
+  line-height: 1.16;
+}
+
+.traceability-panel__header > span {
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 999px;
+  padding: 4px 9px;
+  color: var(--color-muted, #91a4b7);
+  font-size: 0.72rem;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.traceability-panel__header > span.has-gaps {
+  border-color: rgba(251, 113, 133, 0.4);
+  color: #fecdd3;
+  background: rgba(251, 113, 133, 0.08);
+}
+
+.traceability-panel__summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.traceability-panel__metric {
+  min-width: 0;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 8px;
+  padding: 9px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.traceability-panel__metric svg {
+  color: #7dd3fc;
+}
+
+.traceability-panel__metric strong,
+.traceability-panel__metric span {
+  display: block;
+  min-width: 0;
+}
+
+.traceability-panel__metric strong {
+  color: var(--color-heading, #f7fbff);
+  font-size: 0.98rem;
+  line-height: 1;
+}
+
+.traceability-panel__metric span {
+  color: var(--color-muted, #91a4b7);
+  font-size: 0.66rem;
+  font-weight: 740;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.traceability-panel__rows {
+  display: grid;
+  gap: 8px;
+}
+
+.traceability-row {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-left-width: 4px;
+  border-left-color: #86efac;
+  border-radius: 8px;
+  padding: 10px;
+  color: inherit;
+  background: rgba(8, 13, 18, 0.74);
+  text-align: left;
+}
+
+.traceability-row:hover {
+  border-color: rgba(255, 255, 255, 0.42);
+  border-left-color: #86efac;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.traceability-row.has-gaps {
+  border-left-color: #fb7185;
+}
+
+.traceability-row.is-selected {
+  box-shadow: 0 0 0 2px rgba(125, 211, 252, 0.34);
+}
+
+.traceability-row__title {
+  color: var(--color-heading, #f7fbff);
+  font-size: 0.9rem;
+  font-weight: 820;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.traceability-row__summary,
+.traceability-row__ok,
+.traceability-row__gaps {
+  color: var(--color-muted, #91a4b7);
+  font-size: 0.74rem;
+  line-height: 1.34;
+  overflow-wrap: anywhere;
+}
+
+.traceability-row__chips {
+  flex-wrap: wrap;
+}
+
+.traceability-row__chips span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  padding: 0 7px;
+  color: var(--color-muted, #91a4b7);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+
+.traceability-row__chips strong {
+  color: var(--color-heading, #f7fbff);
+}
+
+.traceability-row__gaps {
+  display: grid;
+  gap: 4px;
+  color: #fecdd3;
+}
+
+.traceability-row__ok {
+  color: #bbf7d0;
+}
+
+.traceability-panel__empty {
+  margin: 0;
+  border: 1px dashed rgba(148, 163, 184, 0.3);
+  border-radius: 8px;
+  padding: 12px;
+  color: var(--color-muted, #91a4b7);
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 0.82rem;
+}
+
+.traceability-panel__warnings {
+  border: 1px solid rgba(250, 204, 21, 0.26);
+  border-radius: 8px;
+  padding: 9px;
+  color: var(--color-muted, #91a4b7);
+  background: rgba(250, 204, 21, 0.07);
+  font-size: 0.74rem;
+}
+
+.traceability-panel__warnings summary {
+  cursor: pointer;
+  color: #fde68a;
+  font-weight: 800;
+}
+
+.traceability-panel__warnings ul {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+@media (max-width: 720px) {
+  .traceability-panel__summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

@@ -59,6 +59,7 @@ import { useAuth } from "./auth/useAuth";
 import type { AuthOperation } from "./auth/types";
 import { PrototypePanel } from "./components/PrototypePanel";
 import { RequirementsPanel } from "./components/RequirementsPanel";
+import { TraceabilityPanel } from "./components/TraceabilityPanel";
 import ConsolidationPanel from "./components/ConsolidationPanel";
 import {
   OrganizationPanel,
@@ -1848,6 +1849,15 @@ function WorkshopRoom() {
             onReject={handleRejectRequirement}
             onSupersede={handleSupersedeRequirement}
             onBaseline={handleBaselineRequirement}
+          />
+          <TraceabilityPanel
+            session={session}
+            selectedNodeId={
+              selectedArtifact
+                ? `requirement:${selectedArtifact.id}`
+                : undefined
+            }
+            onSelectArtifact={handleSelectArtifact}
           />
           <ConsolidationPanel
             suggestions={consolidationSuggestions}
