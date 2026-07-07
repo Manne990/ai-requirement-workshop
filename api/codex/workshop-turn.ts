@@ -1,6 +1,7 @@
 import {
   codexApiKey,
   createCodexWorkshopTurn,
+  createFileCodexAuditSink,
   isUnauthenticatedCodexWorkshopApiEnabled,
   type IncomingBody,
 } from "../../server/codexWorkshopApi.js";
@@ -46,6 +47,10 @@ export default async function handler(
     const turn = await createCodexWorkshopTurn(
       apiKey,
       normalizeBody(request.body),
+      fetch,
+      {
+        auditSink: createFileCodexAuditSink(),
+      },
     );
     response.status(200).json({ turn });
   } catch (error) {

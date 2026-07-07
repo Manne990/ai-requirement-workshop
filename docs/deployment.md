@@ -44,18 +44,19 @@ Use `.env.example` only as a non-secret template. Local values go in
 `.env.local`. Vercel values go in the Vercel project environment settings or
 through `vercel env add`.
 
-| Variable                                   | Scope                               | Secret | Notes                                                                                                                   |
-| ------------------------------------------ | ----------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `VITE_SUPABASE_URL`                        | Vercel Preview and Production       | No     | Browser-safe Supabase project URL. Use a preview project or isolated preview environment.                               |
-| `VITE_SUPABASE_ANON_KEY`                   | Vercel Preview and Production       | No     | Browser-safe anon key. RLS is the enforcement boundary.                                                                 |
-| `OPENAI_API_KEY`                           | Vercel Functions, local BFF         | Yes    | Preferred server-only AI token for `/api/codex/*`.                                                                      |
-| `CODEX_API_TOKEN`                          | Vercel Functions, local BFF         | Yes    | Optional server-only alias if `OPENAI_API_KEY` is not used.                                                             |
-| `SUPABASE_SERVICE_ROLE_KEY`                | Vercel Functions only               | Yes    | Use only for audited privileged server work; never expose to browser code.                                              |
-| `AI_REQUIREMENT_WORKSHOP_BACKUP_DIR`       | Local development only              | No     | Optional local disk mirror for the Vite-only backup endpoint.                                                           |
-| `VITE_WORKSHOP_RECORD_ENDPOINT`            | Browser bundle                      | No     | Optional server-backed record endpoint, for example `/api/workshops`. Leave empty for local/Supabase adapter selection. |
-| `AI_REQUIREMENT_WORKSHOP_SERVER_STORE_DIR` | Local development only              | No     | Optional local JSON store for the dev `/api/workshops` endpoint; not a production persistence path.                     |
-| `AI_REQUIREMENT_WORKSHOP_TELEMETRY_DIR`    | Local development, Vercel Functions | No     | Optional JSONL directory for `/api/mission-control/telemetry`.                                                          |
-| `VITE_MISSION_CONTROL_TELEMETRY_ENDPOINT`  | Browser bundle                      | No     | Optional endpoint such as `/api/mission-control/telemetry`; leave empty to store telemetry only in browser storage.     |
+| Variable                                   | Scope                               | Secret | Notes                                                                                                                                           |
+| ------------------------------------------ | ----------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VITE_SUPABASE_URL`                        | Vercel Preview and Production       | No     | Browser-safe Supabase project URL. Use a preview project or isolated preview environment.                                                       |
+| `VITE_SUPABASE_ANON_KEY`                   | Vercel Preview and Production       | No     | Browser-safe anon key. RLS is the enforcement boundary.                                                                                         |
+| `OPENAI_API_KEY`                           | Vercel Functions, local BFF         | Yes    | Preferred server-only AI token for `/api/codex/*`.                                                                                              |
+| `CODEX_API_TOKEN`                          | Vercel Functions, local BFF         | Yes    | Optional server-only alias if `OPENAI_API_KEY` is not used.                                                                                     |
+| `SUPABASE_SERVICE_ROLE_KEY`                | Vercel Functions only               | Yes    | Use only for audited privileged server work; never expose to browser code.                                                                      |
+| `AI_REQUIREMENT_WORKSHOP_BACKUP_DIR`       | Local development only              | No     | Optional local disk mirror for the Vite-only backup endpoint.                                                                                   |
+| `VITE_WORKSHOP_RECORD_ENDPOINT`            | Browser bundle                      | No     | Optional server-backed record endpoint, for example `/api/workshops`. Leave empty for local/Supabase adapter selection.                         |
+| `AI_REQUIREMENT_WORKSHOP_SERVER_STORE_DIR` | Local development only              | No     | Optional local JSON store for the dev `/api/workshops` endpoint; not a production persistence path.                                             |
+| `AI_REQUIREMENT_WORKSHOP_TELEMETRY_DIR`    | Local development, Vercel Functions | No     | Optional JSONL directory for `/api/mission-control/telemetry`.                                                                                  |
+| `AI_REQUIREMENT_WORKSHOP_CODEX_AUDIT_DIR`  | Local development, Vercel Functions | No     | Optional JSONL directory for server-side Codex turn audit events. Production should replace file storage with durable authenticated audit rows. |
+| `VITE_MISSION_CONTROL_TELEMETRY_ENDPOINT`  | Browser bundle                      | No     | Optional endpoint such as `/api/mission-control/telemetry`; leave empty to store telemetry only in browser storage.                             |
 
 Do not create `VITE_OPENAI_API_KEY`, `VITE_CODEX_API_TOKEN`, or
 `VITE_SUPABASE_SERVICE_ROLE_KEY`. Vite exposes every `VITE_` variable to the

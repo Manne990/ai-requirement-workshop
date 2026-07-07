@@ -103,9 +103,11 @@ The current Vite plugin implements local development versions of
 `/api/codex/status`, `/api/codex/workshop-turn`, and `/api/workshops/backup`.
 The repository also includes Vercel-compatible production routes for the two
 Codex endpoints under `api/codex/`; both local and production Codex paths share
-the same server response validation module. `/api/workshops/backup` remains
-local-development-only disk backup behavior and should not be exposed as a
-production persistence path.
+the same server response validation module. The workshop-turn route writes
+server-side Codex audit events as JSONL through an environment-scoped audit
+sink; production still needs the same audit intent backed by authenticated
+Supabase rows. `/api/workshops/backup` remains local-development-only disk
+backup behavior and should not be exposed as a production persistence path.
 
 ## Supabase Boundary
 

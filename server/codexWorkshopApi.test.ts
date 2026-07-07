@@ -1,11 +1,17 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+  codexAuditDir,
   codexApiKey,
   codexStatusPayload,
-  createServerSafeWorkshopPayload,
   createCodexWorkshopTurn,
+  createFileCodexAuditSink,
+  createServerSafeWorkshopPayload,
   isUnauthenticatedCodexWorkshopApiEnabled,
   parseCodexTurn,
+  type CodexAuditEvent,
 } from "./codexWorkshopApi.js";
 
 describe("codexWorkshopApi", () => {
@@ -100,6 +106,7 @@ describe("codexWorkshopApi", () => {
       );
     }) as unknown as typeof fetch;
 
+    const auditEvents: CodexAuditEvent[] = [];
     await expect(
       createCodexWorkshopTurn(
         "test-api-key",
@@ -122,12 +129,131 @@ describe("codexWorkshopApi", () => {
           },
         },
         fetchImpl,
+        {
+          auditSink: (event) => {
+            auditEvents.push(event);
+          },
+          now: () => "2026-07-07T10:00:00.000Z",
+        },
       ),
     ).resolves.toMatchObject({
       facilitatorMessage:
         "Jag har fångat problemet. Vilken användargrupp prioriterar vi först?",
       artifacts: [{ title: "Larmöversikt" }],
     });
+    expect(auditEvents).toEqual([
+      expect.objectContaining({
+        action: "codex.turn.completed",
+        at: "2026-07-07T10:00:00.000Z",
+        model: "gpt-5.5",
+        scope: {
+          organizationId: "org-1",
+          workshopId: "workshop-1",
+        },
+        payload: {
+          latestHumanMessageChars: "Connected alarm dashboard".length,
+          newAttachmentCount: 0,
+          recentMessageCount: 1,
+          artifactCount: 0,
+        },
+        result: {
+          facilitatorMessageChars:
+            "Jag har fångat problemet. Vilken användargrupp prioriterar vi först?"
+              .length,
+          artifactCount: 1,
+          participantUpdateCount: 0,
+        },
+      }),
+    ]);
+    expect(JSON.stringify(auditEvents)).not.toContain("test-api-key");
+    expect(JSON.stringify(auditEvents)).not.toContain("user-owner");
+  });
+
+  it("writes redacted audit evidence when a Codex turn fails", async () => {
+    const auditEvents: CodexAuditEvent[] = [];
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              message: "OpenAI rejected token=supersecret for ops@example.com.",
+            },
+          }),
+          { status: 500, headers: { "Content-Type": "application/json" } },
+        ),
+    ) as unknown as typeof fetch;
+
+    await expect(
+      createCodexWorkshopTurn(
+        "test-api-key",
+        {
+          message: "Inspect alarm dashboard requirement.",
+          scope: {
+            organizationId: "org-1",
+            workshopId: "workshop-1",
+          },
+        },
+        fetchImpl,
+        {
+          auditSink: (event) => {
+            auditEvents.push(event);
+          },
+          now: () => "2026-07-07T10:01:00.000Z",
+        },
+      ),
+    ).rejects.toThrow("OpenAI rejected");
+
+    expect(auditEvents).toEqual([
+      expect.objectContaining({
+        action: "codex.turn.failed",
+        error: "OpenAI rejected [REDACTED:credential] for [REDACTED:email].",
+      }),
+    ]);
+    expect(JSON.stringify(auditEvents)).not.toContain("supersecret");
+    expect(JSON.stringify(auditEvents)).not.toContain("ops@example.com");
+    expect(JSON.stringify(auditEvents)).not.toContain("test-api-key");
+  });
+
+  it("persists Codex audit events as JSONL on the server side", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "codex-audit-"));
+    try {
+      const env = { AI_REQUIREMENT_WORKSHOP_CODEX_AUDIT_DIR: tempDir };
+      const sink = createFileCodexAuditSink(env);
+      const event: CodexAuditEvent = {
+        id: "codex-audit-test",
+        at: "2026-07-07T10:02:00.000Z",
+        action: "codex.turn.completed",
+        model: "gpt-5.5",
+        scope: {
+          organizationId: "org-1",
+          workshopId: "workshop-1",
+        },
+        payload: {
+          latestHumanMessageChars: 12,
+          newAttachmentCount: 0,
+          recentMessageCount: 1,
+          artifactCount: 2,
+        },
+        result: {
+          facilitatorMessageChars: 18,
+          artifactCount: 2,
+          participantUpdateCount: 1,
+        },
+      };
+
+      await sink(event);
+
+      expect(codexAuditDir(env)).toBe(tempDir);
+      const raw = await readFile(join(tempDir, "codex-audit.jsonl"), "utf8");
+      expect(
+        raw
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line)),
+      ).toEqual([event]);
+    } finally {
+      await rm(tempDir, { force: true, recursive: true });
+    }
   });
 
   it("minimizes and redacts inbound workshop payload again on the server boundary", () => {

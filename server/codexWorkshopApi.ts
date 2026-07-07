@@ -1,3 +1,6 @@
+import { appendFile, mkdir } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { CODEX_MODEL } from "../src/codex/constants.js";
 
 export type IncomingBody = {
@@ -22,6 +25,38 @@ type OpenAIResponsePayload = {
 };
 
 type Env = Record<string, string | undefined>;
+
+export type CodexAuditAction = "codex.turn.completed" | "codex.turn.failed";
+
+export type CodexAuditEvent = {
+  id: string;
+  at: string;
+  action: CodexAuditAction;
+  model: string;
+  scope?: {
+    organizationId: string;
+    workshopId: string;
+  };
+  payload: {
+    latestHumanMessageChars: number;
+    newAttachmentCount: number;
+    recentMessageCount: number;
+    artifactCount: number;
+  };
+  result?: {
+    facilitatorMessageChars: number;
+    artifactCount: number;
+    participantUpdateCount: number;
+  };
+  error?: string;
+};
+
+export type CodexAuditSink = (event: CodexAuditEvent) => void | Promise<void>;
+
+export type CodexWorkshopTurnOptions = {
+  auditSink?: CodexAuditSink;
+  now?: () => string;
+};
 
 export function codexApiKey(env: Env = process.env) {
   return env.OPENAI_API_KEY ?? env.CODEX_API_TOKEN ?? "";
@@ -48,6 +83,7 @@ export async function createCodexWorkshopTurn(
   apiKey: string,
   payload: IncomingBody,
   fetchImpl: typeof fetch = fetch,
+  options: CodexWorkshopTurnOptions = {},
 ) {
   const message =
     typeof payload.message === "string" ? payload.message.trim() : "";
@@ -64,26 +100,43 @@ export async function createCodexWorkshopTurn(
     scope: payload.scope,
   });
 
-  const upstream = await fetchImpl("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: CODEX_MODEL,
-      instructions: workshopInstructions(),
-      input: JSON.stringify(safePayload, null, 2),
-      store: false,
-    }),
-  });
+  try {
+    const upstream = await fetchImpl("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: CODEX_MODEL,
+        instructions: workshopInstructions(),
+        input: JSON.stringify(safePayload, null, 2),
+        store: false,
+      }),
+    });
 
-  const data = (await upstream.json()) as OpenAIResponsePayload;
-  if (!upstream.ok) {
-    throw new Error(data.error?.message ?? "OpenAI Responses API failed.");
+    const data = (await upstream.json()) as OpenAIResponsePayload;
+    if (!upstream.ok) {
+      throw new Error(data.error?.message ?? "OpenAI Responses API failed.");
+    }
+
+    const turn = parseCodexTurn(extractOutputText(data));
+    await writeCodexAudit(options.auditSink, {
+      action: "codex.turn.completed",
+      safePayload,
+      turn,
+      now: options.now,
+    });
+    return turn;
+  } catch (error) {
+    await writeCodexAudit(options.auditSink, {
+      action: "codex.turn.failed",
+      safePayload,
+      error,
+      now: options.now,
+    });
+    throw error;
   }
-
-  return parseCodexTurn(extractOutputText(data));
 }
 
 export function createServerSafeWorkshopPayload(payload: IncomingBody) {
@@ -154,6 +207,90 @@ Return only JSON with this shape:
   ]
 }
 Create 2-6 artifacts. Prefer concrete requirements, risks, assumptions, and actors that can be inspected on the canvas. At most one artifact may have type "question"; defer extra questions into risks or assumptions instead.`;
+}
+
+export function codexAuditDir(env: Env = process.env) {
+  return (
+    env.AI_REQUIREMENT_WORKSHOP_CODEX_AUDIT_DIR?.trim() ||
+    join(homedir(), ".gaia", "ai-requirement-workshop", "codex-audit")
+  );
+}
+
+export function createFileCodexAuditSink(env: Env = process.env) {
+  const dir = codexAuditDir(env);
+  const filePath = join(dir, "codex-audit.jsonl");
+
+  return async (event: CodexAuditEvent) => {
+    await mkdir(dir, { recursive: true });
+    await appendFile(filePath, `${JSON.stringify(event)}\n`, "utf8");
+  };
+}
+
+async function writeCodexAudit(
+  auditSink: CodexAuditSink | undefined,
+  input: {
+    action: CodexAuditAction;
+    safePayload: ReturnType<typeof createServerSafeWorkshopPayload>;
+    turn?: ReturnType<typeof parseCodexTurn>;
+    error?: unknown;
+    now?: () => string;
+  },
+) {
+  if (!auditSink) {
+    return;
+  }
+
+  const event = createCodexAuditEvent(input);
+  await auditSink(event);
+}
+
+function createCodexAuditEvent({
+  action,
+  safePayload,
+  turn,
+  error,
+  now = () => new Date().toISOString(),
+}: {
+  action: CodexAuditAction;
+  safePayload: ReturnType<typeof createServerSafeWorkshopPayload>;
+  turn?: ReturnType<typeof parseCodexTurn>;
+  error?: unknown;
+  now?: () => string;
+}): CodexAuditEvent {
+  const at = now();
+  const scope = safePayload.scope;
+  const safeError =
+    error instanceof Error
+      ? safeString(error.message, 500)
+      : error
+        ? safeString(String(error), 500)
+        : undefined;
+
+  return {
+    id: `codex-audit-${hashString(
+      `${at}:${action}:${scope?.organizationId ?? ""}:${scope?.workshopId ?? ""}`,
+    )}`,
+    at,
+    action,
+    model: CODEX_MODEL,
+    scope,
+    payload: {
+      latestHumanMessageChars: safePayload.latestHumanMessage.length,
+      newAttachmentCount: safePayload.newAttachments.length,
+      recentMessageCount: safePayload.session.recentMessages.length,
+      artifactCount: safePayload.session.artifacts.length,
+    },
+    ...(turn
+      ? {
+          result: {
+            facilitatorMessageChars: turn.facilitatorMessage.length,
+            artifactCount: turn.artifacts.length,
+            participantUpdateCount: turn.participantUpdates?.length ?? 0,
+          },
+        }
+      : {}),
+    ...(safeError ? { error: safeError } : {}),
+  };
 }
 
 function extractOutputText(data: OpenAIResponsePayload) {
@@ -305,6 +442,15 @@ function redactServerSensitiveText(text: string) {
     )
     .replace(/\b(?:19|20)?\d{6}[-+]\d{4}\b/g, "[REDACTED:personal-id]")
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[REDACTED:email]");
+}
+
+function hashString(value: string) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 function isProductionServerEnv(env: Env) {
