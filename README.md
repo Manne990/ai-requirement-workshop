@@ -131,9 +131,14 @@ The current version adds production-hardening foundations:
 
 - Vercel-compatible Codex API routes with shared response validation.
 - Supabase Auth adapter for register, sign in, sign out, and password reset when production env values are configured.
-- Initial Supabase migration for organizations, memberships, workshops, messages, artifacts, requirements, attachments, audit events, and read states.
+- Supabase migrations for organizations, memberships, workshops, messages,
+  artifacts, requirements, attachments, audit events, read states, private
+  attachment storage policies, and Realtime publication entries.
 - Lazy Supabase loading to keep the default bundle smaller.
 - Optimistic chat display so human workshop input is visible while Codex is still generating a turn.
 - Regression tests for pending Codex turns, Supabase auth, and the production Codex API boundary.
 
-The Supabase schema is not applied automatically by this repository yet. Realtime multi-user sync, applied RLS verification, and production storage bucket policies are still pending.
+The Supabase schema is not applied automatically by this repository. Local
+migration verification is executable through `npm run test:supabase:migrations`;
+real applied-environment evidence still requires
+`npm run test:supabase:production` against an isolated Supabase project.

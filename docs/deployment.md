@@ -141,9 +141,25 @@ npm run test:supabase:migrations
 ```
 
 This applies the repository migrations to a disposable Postgres database with
-Supabase Auth stubs and verifies the organization/workshop helper boundaries for
-owner, participant, viewer, and outsider users. It does not replace the required
-production Supabase project evidence.
+Supabase Auth and Storage stubs. It verifies organization/workshop helper
+boundaries, attachment object policies, private bucket settings, and Realtime
+publication entries for owner, participant, viewer, and outsider scenarios. It
+does not replace the required production Supabase project evidence.
+
+For applied-environment evidence after a real Supabase project has the
+migrations:
+
+```bash
+npm run test:supabase:production
+```
+
+This command requires `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and
+`SUPABASE_SERVICE_ROLE_KEY`. It creates temporary Supabase Auth users and a
+temporary organization/workshop, verifies RLS and Storage behavior through real
+Supabase clients, writes audit and attachment evidence, and then removes the
+temporary data. The same probe can be run from GitHub Actions with
+`workflow_dispatch` input `supabase_production_check=true` when the matching
+repository secrets are configured.
 
 ## Promotion And Rollback
 

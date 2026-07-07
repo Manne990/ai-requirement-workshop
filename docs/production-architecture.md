@@ -259,6 +259,9 @@ into auth or the workshop UI:
   when testing migrations and RLS changes.
 - Production deploys should not run until Supabase migrations, RLS policies, and
   storage policies have a repeatable migration path and test evidence.
+- GitHub Actions has an optional `supabase-production` workflow-dispatch job
+  that runs the destructive isolated Supabase probe when production/preview
+  secrets are configured for the repository.
 - The operational deployment runbook is `docs/deployment.md`.
 
 ## Environment Variables
@@ -375,6 +378,7 @@ npm run lint
 npm run typecheck
 npm run test
 npm run build
+npm run test:supabase:migrations
 npm run ci
 ```
 
@@ -385,6 +389,8 @@ production implementation slices, add narrower tests before relying on the full
 gate:
 
 - RLS policy tests for organization/workshop isolation.
+- Applied-environment Supabase proof with `npm run test:supabase:production`
+  before marking Supabase/Auth/Storage gates as production-pass.
 - BFF route tests proving AI and service-role secrets never reach browser
   responses.
 - Import tests proving V4 export envelopes map idempotently into server rows.

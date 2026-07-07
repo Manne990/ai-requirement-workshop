@@ -102,4 +102,40 @@ describe("Supabase production schema migration", () => {
       /create policy audit_events_editor_insert[\s\S]+actor_user_id = auth\.uid\(\)[\s\S]+public\.can_edit_workshop\(workshop_id\)[\s\S]+public\.can_edit_org\(organization_id\)/,
     );
   });
+
+  it("configures private attachment storage with workshop-scoped policies", () => {
+    expect(migration).toContain("insert into storage.buckets");
+    expect(migration).toContain("'workshop-attachments'");
+    expect(migration).toContain("false");
+    expect(migration).toContain("10485760");
+    expect(migration).toContain(
+      "workshop_attachment_storage_workshop_id(object_name text)",
+    );
+    expect(migration).toContain(
+      "workshop_attachment_storage_org_id(object_name text)",
+    );
+    expect(migration).toMatch(
+      /create policy workshop_attachment_objects_select on storage\.objects[\s\S]+public\.is_workshop_member/,
+    );
+    expect(migration).toMatch(
+      /create policy workshop_attachment_objects_insert on storage\.objects[\s\S]+public\.can_edit_workshop[\s\S]+public\.is_org_member/,
+    );
+  });
+
+  it("publishes collaboration tables to Supabase Realtime", () => {
+    expect(migration).toContain("supabase_realtime");
+    for (const table of [
+      "workshops",
+      "messages",
+      "artifacts",
+      "requirements",
+      "approvals",
+      "read_states",
+    ]) {
+      expect(migration).toContain(`'${table}'`);
+    }
+    expect(migration).toContain(
+      "alter publication supabase_realtime add table",
+    );
+  });
 });

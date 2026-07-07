@@ -15,6 +15,14 @@ on:
         options:
           - "false"
           - "true"
+      supabase_production_check:
+        description: "Run the destructive isolated Supabase production probe against configured secrets."
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 permissions:
   contents: read
@@ -169,3 +177,28 @@ jobs:
 
       - name: Verify Supabase migrations
         run: npm run test:supabase:migrations
+
+  supabase-production:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.supabase_production_check == 'true' }}
+
+    env:
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Verify Supabase production boundary
+        run: npm run test:supabase:production

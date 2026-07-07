@@ -8,6 +8,9 @@ This directory contains the first production schema foundation for AI Requiremen
 - Row Level Security enabled for every production table.
 - Membership-based policies for organization and workshop isolation.
 - Helper functions for organization/workshop membership and edit checks using owner, facilitator, participant, and viewer roles.
+- Private `workshop-attachments` Supabase Storage bucket configuration with
+  workshop-scoped object policies.
+- Supabase Realtime publication entries for core collaboration tables.
 
 ## Not Yet Proven
 
@@ -15,8 +18,8 @@ This directory contains the first production schema foundation for AI Requiremen
 - RLS policies are text-verified in CI and migrations are applied to a
   disposable Postgres database by `npm run test:supabase:migrations`; they have
   not been executed against a real Supabase project yet.
-- Storage bucket policies for attachment objects still need an applied Supabase environment.
-- Realtime publication is not configured in the database migration yet.
+- Storage bucket policies and realtime publication have executable migrations,
+  but still need applied-environment evidence in a real Supabase project.
 
 ## Realtime Foundation
 
@@ -54,6 +57,16 @@ npm run test:supabase:migrations
 npm run ci
 ```
 
-Before production launch, add an environment-backed migration test that applies
-this SQL to an isolated Supabase project, then verifies tenant isolation with at
-least two users and two organizations through the browser/client access path.
+Before production launch, run the environment-backed production probe against an
+isolated Supabase project after applying these migrations:
+
+```bash
+npm run test:supabase:production
+```
+
+That probe creates temporary Supabase Auth users, profiles, one organization,
+one workshop, messages, artifacts, requirements, audit events, attachment
+metadata, and one Storage object. It verifies owner/facilitator/participant/
+viewer/outsider behavior through real Supabase clients, then deletes the
+temporary data unless `AI_REQUIREMENT_WORKSHOP_KEEP_PRODUCTION_VERIFY_DATA=1`
+is set.
