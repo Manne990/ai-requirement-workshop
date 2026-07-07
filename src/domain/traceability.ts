@@ -114,6 +114,7 @@ export type TraceabilityCoverageExpectation = {
   acceptedKinds: TraceabilityNodeKind[];
   acceptedArtifactTypes?: ArtifactType[];
   description: string;
+  maxDepth?: number;
   statuses?: string[];
 };
 
@@ -140,8 +141,9 @@ export const defaultTraceabilityCoverageExpectations = [
     id: "requirement-test",
     targetKind: "requirement",
     direction: "downstream",
-    acceptedKinds: ["test", "prototype"],
-    description: "validation test or prototype coverage",
+    acceptedKinds: ["test"],
+    description: "validation test",
+    maxDepth: 1,
   },
   {
     id: "requirement-risk-review",
@@ -824,8 +826,8 @@ function coverageGapForNode(
 ): TraceabilityCoverageGap[] {
   const impact =
     expectation.direction === "upstream"
-      ? getUpstreamImpact(graph, node.id)
-      : getDownstreamImpact(graph, node.id);
+      ? getUpstreamImpact(graph, node.id, { maxDepth: expectation.maxDepth })
+      : getDownstreamImpact(graph, node.id, { maxDepth: expectation.maxDepth });
   const acceptedKinds = new Set(expectation.acceptedKinds);
   const covered = impact.nodes.some((impactNode) =>
     satisfiesCoverageExpectation(impactNode, acceptedKinds, expectation),

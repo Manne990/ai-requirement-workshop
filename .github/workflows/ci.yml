@@ -5,6 +5,16 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      production_release_check:
+        description: "Fail if the production readiness checklist still contains Fail gates."
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 permissions:
   contents: read
@@ -110,3 +120,14 @@ jobs:
               exit 1
             }
           done
+
+      - name: Block production release when checklist has failing gates
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.production_release_check == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if grep -nE '^\|[^|]+\|[^|]+\|[^|]+\|[^|]+\|[[:space:]]*Fail[[:space:]]*\|' docs/production-readiness-checklist.md; then
+            echo "Production release check failed: production readiness checklist still contains Fail gates." >&2
+            exit 1
+          fi

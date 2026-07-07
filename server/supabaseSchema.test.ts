@@ -76,5 +76,29 @@ describe("Supabase production schema migration", () => {
   it("allows a new authenticated user to bootstrap the first owner membership", () => {
     expect(migration).toContain("memberships_creator_owner_bootstrap");
     expect(migration).toContain("organizations.created_by = auth.uid()");
+    expect(migration).toContain("organizations_creator_select");
+    expect(migration).toContain("status text not null default 'active'");
+  });
+
+  it("keeps participant comments separate from workshop mutation authority", () => {
+    expect(migration).toMatch(
+      /create or replace function public\.can_edit_workshop[\s\S]+m\.role in \('owner', 'facilitator'\)/,
+    );
+    expect(migration).toMatch(
+      /create or replace function public\.can_comment_workshop[\s\S]+m\.role in \('owner', 'facilitator', 'participant'\)/,
+    );
+    expect(migration).toContain(
+      "for insert with check (public.can_comment_workshop(workshop_id))",
+    );
+  });
+
+  it("does not expose global audit rows through authenticated RLS", () => {
+    expect(migration).not.toContain("workshop_id is null");
+    expect(migration).toMatch(
+      /create policy audit_events_member_select[\s\S]+public\.is_workshop_member\(workshop_id\)[\s\S]+public\.is_org_member\(organization_id\)/,
+    );
+    expect(migration).toMatch(
+      /create policy audit_events_editor_insert[\s\S]+actor_user_id = auth\.uid\(\)[\s\S]+public\.can_edit_workshop\(workshop_id\)[\s\S]+public\.can_edit_org\(organization_id\)/,
+    );
   });
 });

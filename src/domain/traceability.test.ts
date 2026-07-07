@@ -139,7 +139,7 @@ describe("traceability graph", () => {
           gap.expectationId === "requirement-test" &&
           gap.targetNodeId === "requirement:artifact-requirement-002",
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("uses source artifacts as provenance and warns on unresolved provenance", () => {

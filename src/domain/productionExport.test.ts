@@ -202,6 +202,77 @@ describe("production export package", () => {
     );
   });
 
+  it("blocks production readiness when a prototype covers a requirement without a validation test", () => {
+    const approvedRequirement = approveRequirement(
+      createRequirement({
+        id: "requirement-alarm-status",
+        title: "Fresh alarm dashboard",
+        statement:
+          "The operator should view alarm status within 60 seconds so that stale incidents are visible. Acceptance criteria: Given an alarm changes, then the dashboard updates within 60 seconds. Security audit logging records access.",
+        state: "candidate",
+        createdAt: "2026-07-06T09:02:00.000Z",
+        createdBy: "agent-quality",
+        acceptanceCriteria: [
+          "Given an alarm changes, then the dashboard updates within 60 seconds.",
+        ],
+        rationale: "Derived from workshop source material.",
+        sourceRefs: [
+          {
+            artifactId: "artifact-requirement-1",
+            messageId: "message-source",
+            participantId: "human-1",
+          },
+        ],
+      }),
+      {
+        actorId: "product-owner",
+        at: "2026-07-06T09:10:00.000Z",
+        rationale: "Accepted for stakeholder review.",
+      },
+    );
+    const prototype = createPrototype(
+      workshopId,
+      [prototypeRequirementRefFromRequirement(approvedRequirement)],
+      {
+        prototypeId: "prototype-alarm-review",
+        title: "Alarm review",
+        actorId: "agent-ux",
+        at: "2026-07-06T09:20:00.000Z",
+        sourceModel: {
+          provider: "manual",
+          model: "prototype-test-model",
+          promptVersion: "prod-export-test",
+        },
+      },
+    );
+
+    const exported = createProductionExportPackage({
+      session: createReviewSession([prototype]),
+      requirements: [approvedRequirement],
+      auditEvents: auditRequirementHistory(approvedRequirement, {
+        organizationId,
+        workshopId,
+      }),
+      organizationId,
+      workshopId,
+      generatedAt,
+      traceability: prototypeOnlyTraceabilityInput(),
+    });
+
+    expect(exported.prototypeSummary.coveredRequirementIds).toEqual([
+      "requirement-alarm-status",
+    ]);
+    expect(exported.readiness).toBe("blocked");
+    expect(exported.traceability.reviewGaps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          expectationId: "requirement-test",
+          targetNodeId: "requirement:artifact-requirement-1",
+        }),
+      ]),
+    );
+  });
+
   it("prefers baselined requirements while retaining non-review traceability gaps", () => {
     const baselinedRequirement = baselineRequirement(
       approveRequirement(
@@ -494,6 +565,25 @@ function createReviewSession(
 }
 
 function completeTraceabilityInput() {
+  return {
+    workItems: [
+      {
+        id: "requirement-validation-test",
+        kind: "test" as const,
+        title: "Requirement validation contract test",
+        covers: ["artifact-requirement-1"],
+      },
+      {
+        id: "risk-monitoring-test",
+        kind: "test" as const,
+        title: "Risk monitoring contract test",
+        covers: ["artifact-risk-1"],
+      },
+    ],
+  };
+}
+
+function prototypeOnlyTraceabilityInput() {
   return {
     workItems: [
       {

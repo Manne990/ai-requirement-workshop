@@ -17,6 +17,7 @@ create table if not exists public.organizations (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   slug text not null unique,
+  status text not null default 'active' check (status in ('active', 'archived')),
   created_by uuid not null references public.profiles(id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -351,6 +352,24 @@ as $$
     where w.id = target_workshop_id
       and m.user_id = auth.uid()
       and m.status = 'active'
+      and m.role in ('owner', 'facilitator')
+  );
+$$;
+
+create or replace function public.can_comment_workshop(target_workshop_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1
+    from public.workshops w
+    join public.memberships m on m.organization_id = w.organization_id
+    where w.id = target_workshop_id
+      and m.user_id = auth.uid()
+      and m.status = 'active'
       and m.role in ('owner', 'facilitator', 'participant')
   );
 $$;
@@ -380,6 +399,8 @@ create policy profiles_own_update on public.profiles
 
 create policy organizations_member_select on public.organizations
   for select using (public.is_org_member(id));
+create policy organizations_creator_select on public.organizations
+  for select using (created_by = auth.uid());
 create policy organizations_creator_insert on public.organizations
   for insert with check (created_by = auth.uid());
 create policy organizations_owner_update on public.organizations
@@ -408,7 +429,7 @@ create policy workshop_participants_editor_write on public.workshop_participants
 create policy messages_member_select on public.messages
   for select using (public.is_workshop_member(workshop_id));
 create policy messages_editor_insert on public.messages
-  for insert with check (public.can_edit_workshop(workshop_id));
+  for insert with check (public.can_comment_workshop(workshop_id));
 
 create policy artifacts_member_select on public.artifacts
   for select using (public.is_workshop_member(workshop_id));
@@ -442,16 +463,14 @@ create policy attachments_editor_write on public.attachments
 
 create policy audit_events_member_select on public.audit_events
   for select using (
-    workshop_id is null
-    or public.is_workshop_member(workshop_id)
+    public.is_workshop_member(workshop_id)
     or (organization_id is not null and public.is_org_member(organization_id))
   );
 create policy audit_events_editor_insert on public.audit_events
   for insert with check (
     actor_user_id = auth.uid()
     and (
-      workshop_id is null
-      or public.can_edit_workshop(workshop_id)
+      public.can_edit_workshop(workshop_id)
       or (organization_id is not null and public.can_edit_org(organization_id))
     )
   );
