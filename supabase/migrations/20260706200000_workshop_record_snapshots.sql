@@ -5,6 +5,7 @@
 
 alter table public.workshops
   add column if not exists record_key text,
+  add column if not exists record_revision text not null default gen_random_uuid()::text,
   add column if not exists session_snapshot jsonb not null default '{}'::jsonb,
   add column if not exists requirements_snapshot jsonb not null default '[]'::jsonb,
   add column if not exists audit_events_snapshot jsonb not null default '[]'::jsonb,

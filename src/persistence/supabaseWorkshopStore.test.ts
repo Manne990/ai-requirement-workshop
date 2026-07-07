@@ -13,7 +13,7 @@ import {
 } from "./supabaseWorkshopStore";
 
 type TableName = "profiles" | "organizations" | "memberships" | "workshops";
-type QueryOperation = "select" | "insert" | "upsert";
+type QueryOperation = "select" | "insert" | "upsert" | "update";
 type QueryError = {
   message: string;
   code?: string;
@@ -74,11 +74,12 @@ describe("supabaseWorkshopStore", () => {
           operation: "insert",
         }),
         expect.objectContaining({ table: "memberships", operation: "insert" }),
-        expect.objectContaining({ table: "workshops", operation: "upsert" }),
+        expect.objectContaining({ table: "workshops", operation: "insert" }),
       ]),
     );
     expect(Object.values(fake.state.workshops)[0]).toMatchObject({
       record_key: "workshop-local-key",
+      record_revision: expect.stringMatching(/^snapshot-[a-f0-9]{8}$/),
       title: record.title,
       status: "active",
       created_by: "user-1",
@@ -115,6 +116,7 @@ describe("supabaseWorkshopStore", () => {
     expect(fake.state.workshops["configured-workshop"]).toMatchObject({
       organization_id: "org-configured",
       record_key: "configured-workshop",
+      record_revision: expect.stringMatching(/^snapshot-[a-f0-9]{8}$/),
     });
   });
 
@@ -256,6 +258,7 @@ describe("supabaseWorkshopStore", () => {
     await store.saveRecord(record);
 
     expect(fake.state.workshops["workshop-ledger-key"]).toMatchObject({
+      record_revision: expect.stringMatching(/^snapshot-[a-f0-9]{8}$/),
       requirements_snapshot: [requirement],
       audit_events_snapshot: auditEvents,
     });
@@ -263,9 +266,55 @@ describe("supabaseWorkshopStore", () => {
       store.loadRecord("workshop-ledger-key"),
     ).resolves.toMatchObject({
       id: "workshop-ledger-key",
+      revision: expect.stringMatching(/^snapshot-[a-f0-9]{8}$/),
       requirements: [requirement],
       auditEvents,
     });
+  });
+
+  it("rejects stale Supabase snapshot saves instead of overwriting state", async () => {
+    const fake = createFakeSupabase();
+    const writer = createSupabaseWorkshopRecordStore({ supabase: fake.client });
+    const staleWriter = createSupabaseWorkshopRecordStore({
+      supabase: fake.client,
+    });
+    const record = createTestRecord("supabase-conflict-workshop");
+
+    await writer.saveRecord(record);
+    const initialRevision =
+      fake.state.workshops["supabase-conflict-workshop"].record_revision;
+    expect(initialRevision).toEqual(expect.stringMatching(/^snapshot-/));
+
+    await expect(staleWriter.saveRecord(record)).rejects.toThrow(
+      'Unable to save Supabase workshop "supabase-conflict-workshop": Supabase workshop "supabase-conflict-workshop" update requires expected revision. Reload the workshop before saving.',
+    );
+
+    const loaded = await writer.loadRecord("supabase-conflict-workshop");
+    expect(loaded?.revision).toBe(initialRevision);
+    if (!loaded) {
+      throw new Error("Expected Supabase fake to return saved workshop.");
+    }
+    await writer.saveRecord({
+      ...loaded,
+      title: "Updated safely",
+      updatedAt: "2026-07-06T20:05:00.000Z",
+      session: {
+        ...loaded.session,
+        title: "Updated safely",
+        updatedAt: "2026-07-06T20:05:00.000Z",
+      },
+    });
+
+    expect(fake.state.workshops["supabase-conflict-workshop"]).toMatchObject({
+      title: "Updated safely",
+      record_revision: expect.not.stringMatching(String(initialRevision)),
+    });
+
+    await expect(
+      staleWriter.saveRecord({ ...record, revision: String(initialRevision) }),
+    ).rejects.toThrow(
+      `Unable to save Supabase workshop "supabase-conflict-workshop": Supabase workshop "supabase-conflict-workshop" revision conflict. Expected ${initialRevision}, current ${fake.state.workshops["supabase-conflict-workshop"].record_revision}. Reload the workshop before saving.`,
+    );
   });
 
   it("adds operation context to Supabase list, load, and save errors", async () => {
@@ -303,6 +352,7 @@ describe("supabaseWorkshopStore", () => {
         queryErrors: {
           workshops: {
             upsert: { message: "new row violates row-level security policy" },
+            insert: { message: "new row violates row-level security policy" },
           },
         },
       }).client,
@@ -376,7 +426,7 @@ class FakeQuery {
   private filters: { column: string; value: unknown }[] = [];
   private orders: { column: string; ascending: boolean }[] = [];
   private limitCount: number | null = null;
-  private operation: "select" | "insert" | "upsert" = "select";
+  private operation: QueryOperation = "select";
   private payload: Record<string, unknown> | null = null;
   private readonly table: TableName;
   private readonly state: FakeState;
@@ -427,6 +477,17 @@ class FakeQuery {
     return this;
   }
 
+  update(payload: Record<string, unknown>) {
+    this.operation = "update";
+    this.payload = payload;
+    this.state.operations.push({
+      table: this.table,
+      operation: "update",
+      payload,
+    });
+    return this;
+  }
+
   single() {
     const result = this.resolve();
     return Promise.resolve({
@@ -455,6 +516,9 @@ class FakeQuery {
     if (this.operation === "upsert") {
       return this.applyUpsert();
     }
+    if (this.operation === "update") {
+      return this.applyUpdate();
+    }
 
     return { data: this.selectRows(), error: null };
   }
@@ -474,6 +538,20 @@ class FakeQuery {
       const id = `membership-${Object.keys(this.state.memberships).length + 1}`;
       this.state.memberships[id] = { id, ...this.payload };
       return { data: [{ id }], error: null };
+    }
+
+    if (this.table === "workshops") {
+      const recordKey = String(this.payload.record_key);
+      const id = `workshop-row-${Object.keys(this.state.workshops).length + 1}`;
+      this.state.workshops[recordKey] = {
+        id,
+        created_at: "2026-07-06T19:58:00.000Z",
+        ...this.payload,
+      };
+      return {
+        data: [{ id, record_revision: this.payload.record_revision }],
+        error: null,
+      };
     }
 
     return { data: null, error: null };
@@ -504,6 +582,31 @@ class FakeQuery {
     }
 
     return { data: [this.payload], error: null };
+  }
+
+  private applyUpdate(): QueryResult {
+    if (!this.payload) {
+      return { data: null, error: { message: "Missing payload." } };
+    }
+    if (this.table !== "workshops") {
+      return { data: [this.payload], error: null };
+    }
+
+    const rows = this.selectRows();
+    for (const row of rows) {
+      const recordKey = String(row.record_key);
+      this.state.workshops[recordKey] = {
+        ...row,
+        ...this.payload,
+      };
+    }
+    return {
+      data: rows.map((row) => ({
+        id: row.id,
+        record_revision: this.payload?.record_revision,
+      })),
+      error: null,
+    };
   }
 
   private selectRows() {

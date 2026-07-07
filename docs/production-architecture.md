@@ -239,6 +239,10 @@ into auth or the workshop UI:
   use workshop-record revisions for the local server-backed store boundary. An
   update to an existing workshop must carry the last observed revision, and a
   stale or missing revision receives a conflict instead of overwriting state.
+- The Supabase snapshot adapter mirrors the same contract with
+  `workshops.record_revision`: it looks up the current row, rejects stale
+  revisions before writing, and performs explicit insert/update operations
+  rather than using blind snapshot upserts.
 
 ## Vercel Deployment Assumptions
 

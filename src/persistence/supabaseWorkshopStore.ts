@@ -21,6 +21,7 @@ type WorkshopRow = {
   id?: string;
   organization_id?: string | null;
   record_key?: string | null;
+  record_revision?: string | null;
   title?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
@@ -31,7 +32,7 @@ type WorkshopRow = {
 };
 
 const workshopRecordSelect =
-  "id, organization_id, record_key, title, created_at, updated_at, session_snapshot, requirements_snapshot, audit_events_snapshot, seen_insight_ids_by_participant";
+  "id, organization_id, record_key, record_revision, title, created_at, updated_at, session_snapshot, requirements_snapshot, audit_events_snapshot, seen_insight_ids_by_participant";
 
 type OrganizationRole = "owner" | "facilitator" | "participant" | "viewer";
 
@@ -60,6 +61,15 @@ export function createSupabaseWorkshopRecordStore({
 }: SupabaseWorkshopStoreOptions = {}): WorkshopRecordStore {
   const clientLoader = createSupabaseClientLoader(env, supabase);
   let organizationAccessPromise: Promise<OrganizationAccess> | null = null;
+  const revisionByRecordId = new Map<string, string>();
+
+  const rememberRevision = (
+    record: Pick<WorkshopRecord, "id" | "revision">,
+  ) => {
+    if (record.revision) {
+      revisionByRecordId.set(record.id, record.revision);
+    }
+  };
 
   const organizationAccess = async () => {
     organizationAccessPromise ??= ensureOrganizationAccess(
@@ -85,7 +95,10 @@ export function createSupabaseWorkshopRecordStore({
           throwSupabaseError(error);
         }
 
-        return (data ?? []).map(rowToWorkshopRecord).map(toWorkshopSummary);
+        return (data ?? []).map(rowToWorkshopRecord).map((record) => {
+          rememberRevision(record);
+          return toWorkshopSummary(record);
+        });
       } catch (error) {
         throwOperationError("Unable to list Supabase workshops", error);
       }
@@ -107,7 +120,12 @@ export function createSupabaseWorkshopRecordStore({
         }
 
         const row = data?.[0];
-        return row ? rowToWorkshopRecord(row) : null;
+        if (!row) {
+          return null;
+        }
+        const record = rowToWorkshopRecord(row);
+        rememberRevision(record);
+        return record;
       } catch (error) {
         throwOperationError(`Unable to load Supabase workshop "${id}"`, error);
       }
@@ -119,30 +137,58 @@ export function createSupabaseWorkshopRecordStore({
         const access = await organizationAccess();
         assertCanWriteWorkshops(access);
 
-        const { error } = await client
-          .from("workshops")
-          .upsert(
-            {
-              organization_id: access.id,
-              record_key: record.id,
-              local_import_id: record.id,
-              title: record.title,
-              status: "active",
-              created_by: access.user.id,
-              updated_at: record.updatedAt,
-              session_snapshot: record.session,
-              requirements_snapshot: record.requirements,
-              audit_events_snapshot: record.auditEvents,
-              seen_insight_ids_by_participant:
-                record.seenInsightIdsByParticipant,
-            },
-            { onConflict: "organization_id,record_key" },
-          )
-          .select("id");
+        const existing = await loadExistingWorkshopIdentity(
+          client,
+          access.id,
+          record.id,
+        );
+        const expectedRevision =
+          record.revision ?? revisionByRecordId.get(record.id);
+        if (existing) {
+          assertExpectedRevision({
+            recordId: record.id,
+            expectedRevision,
+            currentRevision: existing.revision,
+          });
+        }
+
+        const nextRevision = createWorkshopSnapshotRevision(record);
+        const payload = {
+          organization_id: access.id,
+          record_key: record.id,
+          record_revision: nextRevision,
+          local_import_id: record.id,
+          title: record.title,
+          status: "active",
+          created_by: access.user.id,
+          updated_at: record.updatedAt,
+          session_snapshot: record.session,
+          requirements_snapshot: record.requirements,
+          audit_events_snapshot: record.auditEvents,
+          seen_insight_ids_by_participant: record.seenInsightIdsByParticipant,
+        };
+
+        const { data, error } = existing
+          ? await client
+              .from("workshops")
+              .update(payload)
+              .eq("id", existing.rowId)
+              .eq("record_revision", expectedRevision!)
+              .select("id, record_revision")
+          : await client
+              .from("workshops")
+              .insert(payload)
+              .select("id, record_revision");
 
         if (error) {
           throwSupabaseError(error);
         }
+        if (existing && Array.isArray(data) && data.length === 0) {
+          throw new Error(
+            `Supabase workshop "${record.id}" revision changed before save. Reload the workshop before saving.`,
+          );
+        }
+        revisionByRecordId.set(record.id, nextRevision);
       } catch (error) {
         throwOperationError(
           `Unable to save Supabase workshop "${record.id}"`,
@@ -151,6 +197,54 @@ export function createSupabaseWorkshopRecordStore({
       }
     },
   };
+}
+
+async function loadExistingWorkshopIdentity(
+  client: SupabaseClient,
+  organizationId: string,
+  recordId: string,
+) {
+  const { data, error } = await client
+    .from("workshops")
+    .select("id, record_revision")
+    .eq("organization_id", organizationId)
+    .eq("record_key", recordId)
+    .limit(1);
+
+  if (error) {
+    throwSupabaseError(error);
+  }
+
+  const row = data?.[0];
+  if (!row || typeof row.id !== "string") {
+    return null;
+  }
+
+  return {
+    rowId: row.id,
+    revision: stringOr(row.record_revision),
+  };
+}
+
+function assertExpectedRevision({
+  recordId,
+  expectedRevision,
+  currentRevision,
+}: {
+  recordId: string;
+  expectedRevision: string | undefined;
+  currentRevision: string;
+}) {
+  if (!expectedRevision) {
+    throw new Error(
+      `Supabase workshop "${recordId}" update requires expected revision. Reload the workshop before saving.`,
+    );
+  }
+  if (expectedRevision !== currentRevision) {
+    throw new Error(
+      `Supabase workshop "${recordId}" revision conflict. Expected ${expectedRevision}, current ${currentRevision}. Reload the workshop before saving.`,
+    );
+  }
 }
 
 export function isConfiguredSupabaseWorkshopStore(
@@ -381,6 +475,7 @@ function rowToWorkshopRecord(row: WorkshopRow): WorkshopRecord {
   return {
     id: recordKey,
     organizationId: stringOr(row.organization_id) || undefined,
+    revision: stringOr(row.record_revision),
     title,
     createdAt,
     updatedAt,
@@ -413,6 +508,30 @@ function normalizeSeenInsights(value: unknown): SeenInsightIdsByParticipant {
         : [],
     ]),
   );
+}
+
+function createWorkshopSnapshotRevision(record: WorkshopRecord) {
+  return `snapshot-${hashString(
+    JSON.stringify({
+      id: record.id,
+      organizationId: record.organizationId,
+      title: record.title,
+      updatedAt: record.updatedAt,
+      session: record.session,
+      requirements: record.requirements,
+      auditEvents: record.auditEvents,
+      seenInsightIdsByParticipant: record.seenInsightIdsByParticipant,
+    }),
+  )}`;
+}
+
+function hashString(value: string) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 function isWorkshopSession(value: unknown): value is WorkshopSession {
