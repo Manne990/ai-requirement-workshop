@@ -2,6 +2,7 @@ import { handleWorkshopRecordsRequest } from "../../server/workshopRecordsApi.js
 
 type JsonRequest = {
   method?: string;
+  headers?: Record<string, string | string[] | undefined>;
   query?: {
     id?: string | string[];
   };
@@ -24,6 +25,7 @@ export default async function handler(
   const result = await handleWorkshopRecordsRequest({
     method: request.method,
     url: `/api/workshops/${encodeURIComponent(id ?? "")}`,
+    headers: request.headers,
     body: normalizeBody(request.body),
   });
 

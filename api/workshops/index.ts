@@ -3,6 +3,7 @@ import { handleWorkshopRecordsRequest } from "../../server/workshopRecordsApi.js
 type JsonRequest = {
   method?: string;
   url?: string;
+  headers?: Record<string, string | string[] | undefined>;
   body?: unknown;
 };
 
@@ -19,6 +20,7 @@ export default async function handler(
   const result = await handleWorkshopRecordsRequest({
     method: request.method,
     url: "/api/workshops",
+    headers: request.headers,
     body: normalizeBody(request.body),
   });
 

@@ -235,6 +235,10 @@ into auth or the workshop UI:
 - Concurrent artifact status changes require the sender's expected artifact
   revision. A stale update is retained as a conflict instead of silently
   replacing the current status.
+- `server/workshopRecordsApi.ts` and `src/persistence/serverWorkshopStore.ts`
+  use workshop-record revisions for the local server-backed store boundary. An
+  update to an existing workshop must carry the last observed revision, and a
+  stale or missing revision receives a conflict instead of overwriting state.
 
 ## Vercel Deployment Assumptions
 

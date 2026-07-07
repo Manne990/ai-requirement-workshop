@@ -18,6 +18,15 @@ export function createServerWorkshopStore(
 ): WorkshopRecordStore {
   const endpoint = normalizeEndpoint(options.endpoint ?? defaultEndpoint);
   const fetcher = options.fetcher ?? globalThis.fetch;
+  const revisionByRecordId = new Map<string, string>();
+
+  const rememberRevision = (
+    value: Pick<WorkshopRecord | WorkshopSummary, "id" | "revision">,
+  ) => {
+    if (value.revision) {
+      revisionByRecordId.set(value.id, value.revision);
+    }
+  };
 
   return {
     async listSummaries() {
@@ -31,7 +40,9 @@ export function createServerWorkshopStore(
         );
       }
 
-      return readWorkshopSummaries(await readJson(response));
+      const summaries = readWorkshopSummaries(await readJson(response));
+      summaries.forEach(rememberRevision);
+      return summaries;
     },
 
     async loadRecord(id) {
@@ -48,23 +59,35 @@ export function createServerWorkshopStore(
         );
       }
 
-      return readWorkshopRecord(await readJson(response));
+      const record = readWorkshopRecord(await readJson(response));
+      rememberRevision(record);
+      return record;
     },
 
     async saveRecord(record) {
+      const expectedRevision =
+        record.revision ?? revisionByRecordId.get(record.id);
+      const headers: Record<string, string> = {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      };
+      if (expectedRevision) {
+        headers["If-Match"] = expectedRevision;
+      }
       const response = await fetcher(recordUrl(endpoint, record.id), {
         method: "PUT",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ record }),
+        headers,
+        body: JSON.stringify({ record, expectedRevision }),
       });
       if (!response.ok) {
         throw await createServerError(
           response,
           "Failed to save workshop record.",
         );
+      }
+      const saveResult = readSaveResult(await readJson(response));
+      if (saveResult.revision) {
+        revisionByRecordId.set(record.id, saveResult.revision);
       }
     },
   };
@@ -167,10 +190,21 @@ function readWorkshopRecord(payload: unknown): WorkshopRecord {
   return record;
 }
 
+function readSaveResult(payload: unknown): { revision?: string } {
+  if (!isObject(payload)) {
+    return {};
+  }
+
+  return typeof payload.revision === "string"
+    ? { revision: payload.revision }
+    : {};
+}
+
 function isWorkshopSummary(value: unknown): value is WorkshopSummary {
   return (
     isObject(value) &&
     typeof value.id === "string" &&
+    optionalString(value.revision) &&
     typeof value.title === "string" &&
     typeof value.createdAt === "string" &&
     typeof value.updatedAt === "string" &&
@@ -184,12 +218,17 @@ function isWorkshopRecord(value: unknown): value is WorkshopRecord {
   return (
     isObject(value) &&
     typeof value.id === "string" &&
+    optionalString(value.revision) &&
     typeof value.title === "string" &&
     typeof value.createdAt === "string" &&
     typeof value.updatedAt === "string" &&
     isObject(value.session) &&
     isObject(value.seenInsightIdsByParticipant)
   );
+}
+
+function optionalString(value: unknown) {
+  return value === undefined || typeof value === "string";
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

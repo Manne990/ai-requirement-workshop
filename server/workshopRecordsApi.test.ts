@@ -37,12 +37,13 @@ describe("workshopRecordsApi", () => {
         },
         env,
       ),
-    ).resolves.toEqual({
-      statusCode: 200,
+    ).resolves.toMatchObject({
+      statusCode: 201,
       body: {
         saved: true,
         recordId: "server-workshop-1",
         updatedAt: record.updatedAt,
+        revision: expect.any(String),
       },
     });
 
@@ -58,6 +59,7 @@ describe("workshopRecordsApi", () => {
           expect.objectContaining({
             id: "server-workshop-1",
             organizationId: "organization-001",
+            revision: expect.any(String),
             messageCount: record.session.messages.length,
           }),
         ],
@@ -78,10 +80,103 @@ describe("workshopRecordsApi", () => {
         record: expect.objectContaining({
           id: "server-workshop-1",
           organizationId: "organization-001",
+          revision: expect.any(String),
         }),
       },
     });
     expect(workshopRecordsDir(env)).toBe(tempDir);
+  });
+
+  it("rejects stale writes to existing workshop records", async () => {
+    const record = createServerRecord("server-workshop-conflict");
+    const initialSave = await handleWorkshopRecordsRequest(
+      {
+        method: "PUT",
+        url: "/api/workshops/server-workshop-conflict",
+        body: { record },
+      },
+      env,
+    );
+    expect(initialSave.statusCode).toBe(201);
+    const revision =
+      typeof initialSave.body === "object" &&
+      initialSave.body &&
+      "revision" in initialSave.body &&
+      typeof initialSave.body.revision === "string"
+        ? initialSave.body.revision
+        : "";
+    expect(revision).toMatch(/[a-f0-9]{32}/);
+
+    await expect(
+      handleWorkshopRecordsRequest(
+        {
+          method: "PUT",
+          url: "/api/workshops/server-workshop-conflict",
+          body: { record: { ...record, title: "Unsafely overwritten" } },
+        },
+        env,
+      ),
+    ).resolves.toMatchObject({
+      statusCode: 409,
+      body: {
+        error:
+          "Workshop update requires expected revision for an existing record.",
+        currentRevision: revision,
+      },
+    });
+
+    await expect(
+      handleWorkshopRecordsRequest(
+        {
+          method: "PUT",
+          url: "/api/workshops/server-workshop-conflict",
+          headers: { "if-match": "stale-revision" },
+          body: {
+            record: { ...record, title: "Stale overwrite attempt" },
+            expectedRevision: "stale-revision",
+          },
+        },
+        env,
+      ),
+    ).resolves.toMatchObject({
+      statusCode: 409,
+      body: {
+        error: "Workshop revision conflict. Reload the workshop before saving.",
+        expectedRevision: "stale-revision",
+        currentRevision: revision,
+      },
+    });
+
+    await expect(
+      handleWorkshopRecordsRequest(
+        {
+          method: "PUT",
+          url: "/api/workshops/server-workshop-conflict",
+          headers: { "If-Match": revision },
+          body: {
+            record: {
+              ...record,
+              title: "Safely revised",
+              updatedAt: "2026-07-06T21:32:00.000Z",
+              session: {
+                ...record.session,
+                title: "Safely revised",
+                updatedAt: "2026-07-06T21:32:00.000Z",
+              },
+            },
+            expectedRevision: revision,
+          },
+        },
+        env,
+      ),
+    ).resolves.toMatchObject({
+      statusCode: 200,
+      body: {
+        saved: true,
+        recordId: "server-workshop-conflict",
+        revision: expect.not.stringMatching(revision),
+      },
+    });
   });
 
   it("rejects mismatched ids and unscoped server records", async () => {
@@ -159,6 +254,7 @@ function createServerRecord(id: string): ServerWorkshopRecord {
   return {
     id,
     organizationId: "organization-001",
+    revision: "client-draft",
     title: "Server backed workshop",
     createdAt: "2026-07-06T21:30:00.000Z",
     updatedAt: "2026-07-06T21:31:00.000Z",

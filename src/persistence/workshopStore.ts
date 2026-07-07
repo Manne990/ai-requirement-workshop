@@ -16,6 +16,7 @@ export type SeenInsightIdsByParticipant = Record<string, string[]>;
 export type WorkshopRecord = {
   id: string;
   organizationId?: string;
+  revision?: string;
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -28,6 +29,7 @@ export type WorkshopRecord = {
 export type WorkshopSummary = {
   id: string;
   organizationId?: string;
+  revision?: string;
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -147,6 +149,7 @@ export function toWorkshopSummary(record: WorkshopRecord): WorkshopSummary {
   return {
     id: record.id,
     organizationId: record.organizationId,
+    revision: record.revision,
     title: record.title,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
@@ -481,6 +484,7 @@ function normalizeWorkshopRecord(value: unknown): WorkshopRecord {
   return {
     id,
     organizationId: normalizeOptionalText(value.organizationId),
+    revision: normalizeOptionalText(value.revision),
     title,
     createdAt,
     updatedAt,

@@ -1,10 +1,12 @@
 import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 export type WorkshopRecordsApiRequest = {
   method?: string;
   url?: string;
+  headers?: Record<string, string | string[] | undefined>;
   body?: unknown;
 };
 
@@ -18,6 +20,7 @@ export type WorkshopRecordsApiEnv = Record<string, string | undefined>;
 export type ServerWorkshopRecord = {
   id: string;
   organizationId: string;
+  revision: string;
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -40,6 +43,7 @@ export type ServerWorkshopRecord = {
 export type ServerWorkshopSummary = {
   id: string;
   organizationId: string;
+  revision: string;
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -100,10 +104,41 @@ export async function handleWorkshopRecordsRequest(
         };
       }
 
-      await writeWorkshopRecord(record, env);
+      const existing = await readWorkshopRecord(recordId, env);
+      const expectedRevision = readExpectedRevision(request);
+      if (existing) {
+        if (!expectedRevision) {
+          return {
+            statusCode: 409,
+            body: {
+              error:
+                "Workshop update requires expected revision for an existing record.",
+              currentRevision: existing.revision,
+            },
+          };
+        }
+        if (expectedRevision !== existing.revision) {
+          return {
+            statusCode: 409,
+            body: {
+              error:
+                "Workshop revision conflict. Reload the workshop before saving.",
+              expectedRevision,
+              currentRevision: existing.revision,
+            },
+          };
+        }
+      }
+
+      const savedRecord = await writeWorkshopRecord(record, env);
       return {
-        statusCode: 200,
-        body: { saved: true, recordId: record.id, updatedAt: record.updatedAt },
+        statusCode: existing ? 200 : 201,
+        body: {
+          saved: true,
+          recordId: savedRecord.id,
+          updatedAt: savedRecord.updatedAt,
+          revision: savedRecord.revision,
+        },
       };
     }
 
@@ -186,10 +221,19 @@ async function writeWorkshopRecord(
   const dir = workshopRecordsDir(env);
   const targetPath = workshopRecordPath(record.id, env);
   const tempPath = join(dir, `.${safeFileName(record.id)}.${Date.now()}.tmp`);
+  const versionedRecord: ServerWorkshopRecord = {
+    ...record,
+    revision: createRecordRevision(record),
+  };
 
   await mkdir(dir, { recursive: true });
-  await writeFile(tempPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+  await writeFile(
+    tempPath,
+    `${JSON.stringify(versionedRecord, null, 2)}\n`,
+    "utf8",
+  );
   await rename(tempPath, targetPath);
+  return versionedRecord;
 }
 
 function normalizeServerWorkshopRecord(body: unknown): ServerWorkshopRecord {
@@ -219,7 +263,7 @@ function normalizeServerWorkshopRecord(body: unknown): ServerWorkshopRecord {
   );
   const title = stringOr(record.title, stringOr(session.title)) || "Workshop";
 
-  return {
+  const normalized: Omit<ServerWorkshopRecord, "revision"> = {
     id,
     organizationId,
     title,
@@ -241,6 +285,10 @@ function normalizeServerWorkshopRecord(body: unknown): ServerWorkshopRecord {
       record.seenInsightIdsByParticipant,
     ),
   };
+  return {
+    ...normalized,
+    revision: stringOr(record.revision) || createRecordRevision(normalized),
+  };
 }
 
 function toServerWorkshopSummary(
@@ -249,6 +297,7 @@ function toServerWorkshopSummary(
   return {
     id: record.id,
     organizationId: record.organizationId,
+    revision: record.revision,
     title: record.title,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
@@ -256,6 +305,45 @@ function toServerWorkshopSummary(
     messageCount: record.session.messages.length,
     attachmentCount: record.session.attachments?.length ?? 0,
   };
+}
+
+function readExpectedRevision(request: WorkshopRecordsApiRequest) {
+  const fromBody =
+    isObject(request.body) && typeof request.body.expectedRevision === "string"
+      ? request.body.expectedRevision.trim()
+      : "";
+  if (fromBody) {
+    return fromBody;
+  }
+
+  return readHeader(request.headers, "if-match")
+    .replace(/^W\//, "")
+    .replace(/^"|"$/g, "")
+    .trim();
+}
+
+function readHeader(
+  headers: WorkshopRecordsApiRequest["headers"],
+  wanted: string,
+) {
+  if (!headers) {
+    return "";
+  }
+
+  const found = Object.entries(headers).find(
+    ([key]) => key.toLowerCase() === wanted,
+  )?.[1];
+  return Array.isArray(found) ? (found[0] ?? "") : (found ?? "");
+}
+
+function createRecordRevision(
+  record: Omit<ServerWorkshopRecord, "revision"> & { revision?: string },
+) {
+  const { revision: _revision, ...revisionPayload } = record;
+  return createHash("sha256")
+    .update(JSON.stringify(revisionPayload))
+    .digest("hex")
+    .slice(0, 32);
 }
 
 function readRecordId(url: string | undefined) {
