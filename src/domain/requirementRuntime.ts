@@ -5,7 +5,11 @@ import {
   type ArtifactConsolidationSuggestion,
   type ConsolidationSuggestionOptions,
 } from "./artifactConsolidation";
-import { auditRequirementHistory, type AuditEvent } from "./audit";
+import {
+  auditRequirementHistory,
+  createAuditEvent,
+  type AuditEvent,
+} from "./audit";
 import {
   approveRequirement,
   baselineRequirement,
@@ -64,6 +68,13 @@ export type RequirementRuntimeAuditedAction =
 
 export type RuntimeConsolidationActionOptions =
   ApplyArtifactConsolidationOptions;
+
+export type RuntimeConsolidationDecision = "applied" | "parked";
+
+export type RuntimeConsolidationDecisionOptions =
+  RequirementRuntimeActionOptions & {
+    outputRequirementIds?: string[];
+  };
 
 export type RuntimeConsolidationApplyResult = {
   session: WorkshopSession;
@@ -353,6 +364,68 @@ export function parkRuntimeConsolidationSuggestion(
         : artifact,
     ),
     updatedAt,
+  };
+}
+
+export function recordRuntimeConsolidationDecision(
+  ledger: RequirementRuntimeLedger,
+  suggestion: RuntimeConsolidationSuggestion | string,
+  decision: RuntimeConsolidationDecision,
+  context: RequirementRuntimeAuditContext,
+  options: RuntimeConsolidationDecisionOptions = {},
+): RequirementRuntimeLedger {
+  const suggestionId = suggestionIdOf(suggestion);
+  const action = `consolidation.${decision}` as const;
+  const alreadyRecorded = ledger.auditEvents.some(
+    (event) =>
+      event.target.type === "consolidation" &&
+      event.target.id === suggestionId &&
+      event.action === action,
+  );
+
+  if (alreadyRecorded) {
+    return ledger;
+  }
+
+  const suggestionMetadata =
+    typeof suggestion === "string"
+      ? {
+          consolidationId: suggestionId,
+        }
+      : {
+          consolidationId: suggestion.id,
+          kind: suggestion.kind,
+          sourceArtifactIds: suggestion.sourceArtifactIds,
+          proposedRequirementTitles: suggestion.proposedRequirements.map(
+            (requirement) => requirement.title,
+          ),
+          rationale: suggestion.rationale,
+        };
+
+  return {
+    ...ledger,
+    auditEvents: [
+      ...ledger.auditEvents,
+      createAuditEvent({
+        sequence: nextAuditSequence(ledger.auditEvents),
+        organizationId: context.organizationId,
+        workshopId: context.workshopId,
+        actorId: options.actorId ?? participantIds.human,
+        at: options.at ?? now(),
+        category: "consolidation",
+        action,
+        target: {
+          type: "consolidation",
+          id: suggestionId,
+        },
+        summary: `Consolidation suggestion ${suggestionId} ${decision}.`,
+        metadata: {
+          ...suggestionMetadata,
+          decision,
+          outputRequirementIds: options.outputRequirementIds ?? [],
+        },
+      }),
+    ],
   };
 }
 

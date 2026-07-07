@@ -767,6 +767,7 @@ describe("App", () => {
           "requirement.created",
           "requirement.edited",
           "requirement.approved",
+          "consolidation.applied",
         ]),
       );
     });
@@ -777,6 +778,28 @@ describe("App", () => {
 
     fireEvent.click(await findConsolidationButtonByName(/park/i));
     await waitForTelemetryEvent("consolidation.parked");
+    await waitFor(() => {
+      const records = JSON.parse(
+        window.localStorage.getItem(
+          "ai-requirement-workshop:v3-workshop-records",
+        ) ?? "[]",
+      ) as Array<{
+        auditEvents?: Array<{ action?: string; target?: { type?: string } }>;
+      }>;
+      const recordWithParkedConsolidation = records.find((record) =>
+        record.auditEvents?.some(
+          (event) =>
+            event.action === "consolidation.parked" &&
+            event.target?.type === "consolidation",
+        ),
+      );
+
+      expect(
+        recordWithParkedConsolidation?.auditEvents?.map(
+          (event) => event.action,
+        ),
+      ).toEqual(expect.arrayContaining(["consolidation.parked"]));
+    });
   });
 
   it("exposes accessible regions, stateful controls, and dismissible dialogs for the workshop shell", async () => {

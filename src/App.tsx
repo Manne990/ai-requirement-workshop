@@ -90,6 +90,7 @@ import {
   baselineRequirementPanelItem,
   parkRuntimeConsolidationSuggestion,
   recordRequirementPanelLedgerAction,
+  recordRuntimeConsolidationDecision,
   rejectRequirementPanelItem,
   selectConsolidationPanelArtifacts,
   selectConsolidationPanelSuggestionsFromSession,
@@ -1287,7 +1288,6 @@ function WorkshopRoom() {
             },
           );
           const next = result.session;
-          setRequirementLedger(result.ledger);
           if (suggestion) {
             const previousArtifactIds = new Set(
               current.artifacts.map((artifact) => artifact.id),
@@ -1299,6 +1299,24 @@ function WorkshopRoom() {
                   artifact.type === "requirement",
               )
               .map((artifact) => artifact.id);
+            setRequirementLedger(
+              recordRuntimeConsolidationDecision(
+                result.ledger,
+                suggestion,
+                "applied",
+                {
+                  organizationId,
+                  workshopId: current.id,
+                },
+                {
+                  actorId: humanActorId,
+                  outputRequirementIds: [
+                    ...result.createdRequirementIds,
+                    ...result.updatedRequirementIds,
+                  ],
+                },
+              ),
+            );
             recordMissionControlTelemetry(
               createConsolidationAppliedTelemetry(
                 next,
@@ -1316,6 +1334,8 @@ function WorkshopRoom() {
                 ),
               ),
             );
+          } else {
+            setRequirementLedger(result.ledger);
           }
           return next;
         } catch {
@@ -1334,6 +1354,8 @@ function WorkshopRoom() {
   const handleParkConsolidation = useCallback(
     (suggestionId: string) => {
       setSession((current) => {
+        const organizationId =
+          organizationRuntime?.context.organization.id ?? "local-workshop";
         const suggestion = selectConsolidationPanelSuggestionsFromSession(
           current,
         ).find((candidate) => candidate.id === suggestionId);
@@ -1347,6 +1369,20 @@ function WorkshopRoom() {
             },
           );
           if (suggestion) {
+            setRequirementLedger((ledger) =>
+              recordRuntimeConsolidationDecision(
+                ledger,
+                suggestion,
+                "parked",
+                {
+                  organizationId,
+                  workshopId: current.id,
+                },
+                {
+                  actorId: humanActorId,
+                },
+              ),
+            );
             recordMissionControlTelemetry(
               createConsolidationParkedTelemetry(
                 next,
@@ -1371,7 +1407,7 @@ function WorkshopRoom() {
         }
       });
     },
-    [createTelemetryOptions, humanActorId],
+    [createTelemetryOptions, humanActorId, organizationRuntime],
   );
 
   const handleGeneratePrototype = useCallback(() => {

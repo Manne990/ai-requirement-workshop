@@ -17,18 +17,31 @@ import type {
 } from "./workshop";
 
 export type AuditEventCategory =
-  "access" | "ai" | "attachment" | "export" | "requirement" | "workshop";
+  | "access"
+  | "ai"
+  | "attachment"
+  | "consolidation"
+  | "export"
+  | "requirement"
+  | "workshop";
 
 export type AuditEventAction =
   | "access.denied"
   | "ai.prompt-built"
   | "attachment.reviewed"
+  | "consolidation.applied"
+  | "consolidation.parked"
   | "export.generated"
   | `requirement.${RequirementHistoryAction}`
   | "workshop.status-updated";
 
 export type AuditEventTargetType =
-  "ai-request" | "attachment" | "export" | "requirement" | "workshop";
+  | "ai-request"
+  | "attachment"
+  | "consolidation"
+  | "export"
+  | "requirement"
+  | "workshop";
 
 export type AuditEventTarget = {
   type: AuditEventTargetType;

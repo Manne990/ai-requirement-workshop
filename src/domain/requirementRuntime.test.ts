@@ -6,6 +6,7 @@ import {
   baselineRequirementPanelItem,
   parkRuntimeConsolidationSuggestion,
   recordRequirementPanelLedgerAction,
+  recordRuntimeConsolidationDecision,
   rejectRequirementPanelItem,
   selectConsolidationPanelArtifacts,
   selectConsolidationPanelSuggestionsFromSession,
@@ -329,6 +330,82 @@ describe("requirement runtime adapter", () => {
       expect.arrayContaining(["consolidation-parked"]),
     );
     expect(selectConsolidationPanelSuggestionsFromSession(parked)).toEqual([]);
+  });
+
+  it("records consolidation decisions into the durable audit ledger once", () => {
+    const session = sessionWithArtifacts([
+      artifact({
+        id: "artifact-requirement-1",
+        title: "Alarm overview",
+        content: "Dashboard should show active customer alarms.",
+      }),
+      artifact({
+        id: "artifact-requirement-2",
+        title: "Customer alarm list",
+        content: "The dashboard must display active alarms for each customer.",
+      }),
+    ]);
+    const [suggestion] =
+      selectConsolidationPanelSuggestionsFromSession(session);
+
+    if (!suggestion) {
+      throw new Error("Expected consolidation suggestion fixture.");
+    }
+
+    const context = {
+      organizationId: "org-1",
+      workshopId: session.id,
+    };
+    const applied = recordRuntimeConsolidationDecision(
+      { requirements: [], auditEvents: [] },
+      suggestion,
+      "applied",
+      context,
+      {
+        actorId: participantIds.human,
+        at: updatedAt,
+        outputRequirementIds: ["requirement-artifact-requirement-3"],
+      },
+    );
+    const duplicate = recordRuntimeConsolidationDecision(
+      applied,
+      suggestion,
+      "applied",
+      context,
+      {
+        actorId: participantIds.human,
+        at: updatedAt,
+      },
+    );
+    const parked = recordRuntimeConsolidationDecision(
+      duplicate,
+      suggestion,
+      "parked",
+      context,
+      {
+        actorId: participantIds.human,
+        at: "2026-07-06T09:16:00.000Z",
+      },
+    );
+
+    expect(duplicate.auditEvents).toHaveLength(1);
+    expect(parked.auditEvents.map((event) => event.action)).toEqual([
+      "consolidation.applied",
+      "consolidation.parked",
+    ]);
+    expect(parked.auditEvents[0]).toMatchObject({
+      id: `${session.id}:audit-0001`,
+      category: "consolidation",
+      target: {
+        type: "consolidation",
+        id: suggestion.id,
+      },
+      metadata: {
+        kind: "merge",
+        sourceArtifactIds: ["artifact-requirement-1", "artifact-requirement-2"],
+        outputRequirementIds: ["requirement-artifact-requirement-3"],
+      },
+    });
   });
 
   it("records requirement panel lifecycle actions into a durable ledger", () => {
