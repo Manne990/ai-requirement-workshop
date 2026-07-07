@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { auditRequirementHistory } from "../domain/audit";
 import { approveRequirement, createRequirement } from "../domain/requirements";
-import { createInitialWorkshopSession } from "../domain/workshop";
+import {
+  createInitialWorkshopSession,
+  type WorkshopSession,
+} from "../domain/workshop";
 import {
   createWorkshopRecord,
   createWorkshopRecordExport,
@@ -195,6 +198,7 @@ describe("workshopStore export format", () => {
           },
         },
       ],
+      prototypes: [{}] as unknown as WorkshopSession["prototypes"],
     };
     const requirement = approveRequirement(
       createRequirement({
@@ -244,6 +248,7 @@ describe("workshopStore export format", () => {
     expect(sanitized.requirements).toEqual([]);
     expect(sanitized.auditEvents).toEqual([]);
     expect(sanitized.seenInsightIdsByParticipant).toEqual({});
+    expect(sanitized.session.prototypes).toEqual([]);
     expect(sanitized.session.artifacts[0]).toMatchObject({
       status: "draft",
       tags: expect.arrayContaining([

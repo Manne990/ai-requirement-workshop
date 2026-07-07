@@ -189,7 +189,13 @@ describe("production export package", () => {
             coveredRequirementCount: 1,
             uncoveredRequirementIds: [],
             elementCount: 2,
+            previewHtml: expect.stringContaining("<!doctype html>"),
           },
+          versions: expect.arrayContaining([
+            expect.objectContaining({ version: 1, status: "superseded" }),
+            expect.objectContaining({ version: 2, status: "generated" }),
+          ]),
+          feedback: [],
         },
       ],
     });

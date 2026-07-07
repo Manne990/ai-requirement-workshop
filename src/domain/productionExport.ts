@@ -4,7 +4,11 @@ import {
   createAuditSummary,
   type AuditSummary,
 } from "./audit";
-import type { Prototype, PrototypeVersion } from "./prototype";
+import {
+  renderPrototypePreviewHtml,
+  type Prototype,
+  type PrototypeVersion,
+} from "./prototype";
 import {
   evaluateRequirementQuality,
   type RequirementQualityFinding,
@@ -166,8 +170,11 @@ export type ExportedPrototypeSummary = {
     uncoveredRequirementIds: string[];
     elementCount: number;
     changeSummary: string;
+    previewHtml: string;
   };
   feedbackCount: number;
+  versions: PrototypeVersion[];
+  feedback: Prototype["feedback"];
 };
 
 export type ProductionExportAppendix = {
@@ -557,10 +564,11 @@ function buildPrototypeSummary(
       return [];
     }
 
-    const uncoveredRequirementIds = current.coverage
+    const evidenceVersion = exportPrototypeVersion(current, safeText);
+    const uncoveredRequirementIds = evidenceVersion.coverage
       .filter((coverage) => coverage.status === "not-covered")
       .map((coverage) => coverage.requirementId);
-    const coveredRequirementIds = current.coverage
+    const coveredRequirementIds = evidenceVersion.coverage
       .filter((coverage) => coverage.status === "covered")
       .map((coverage) => coverage.requirementId);
     allCoveredRequirementIds.push(...coveredRequirementIds);
@@ -574,17 +582,25 @@ function buildPrototypeSummary(
         updatedAt: prototype.updatedAt,
         current: {
           id: current.id,
-          title: safeText(current.title),
+          title: evidenceVersion.title,
           generatedAt: current.generatedAt,
-          generatedBy: current.generatedBy,
-          sourceModel: current.sourceModel,
-          requirementCount: current.requirementRefs.length,
+          generatedBy: evidenceVersion.generatedBy,
+          sourceModel: evidenceVersion.sourceModel,
+          requirementCount: evidenceVersion.requirementRefs.length,
           coveredRequirementCount: coveredRequirementIds.length,
           uncoveredRequirementIds,
-          elementCount: current.elements.length,
-          changeSummary: safeText(current.changeSummary),
+          elementCount: evidenceVersion.elements.length,
+          changeSummary: evidenceVersion.changeSummary,
+          previewHtml: renderPrototypePreviewHtml(evidenceVersion),
         },
         feedbackCount: prototype.feedback.length,
+        versions: prototype.versions.map((version) =>
+          exportPrototypeVersion(version, safeText),
+        ),
+        feedback: prototype.feedback.map((feedback) => ({
+          ...feedback,
+          body: safeText(feedback.body),
+        })),
       },
     ];
   });
@@ -598,6 +614,45 @@ function buildPrototypeSummary(
       0,
     ),
     prototypes: summaries,
+  };
+}
+
+function exportPrototypeVersion(
+  version: PrototypeVersion,
+  safeText: (text: string) => string,
+): PrototypeVersion {
+  return {
+    ...version,
+    title: safeText(version.title),
+    generatedBy: safeText(version.generatedBy),
+    sourceModel: {
+      provider: version.sourceModel.provider,
+      model: safeText(version.sourceModel.model),
+      promptVersion: safeText(version.sourceModel.promptVersion),
+      generatedBy: safeText(version.sourceModel.generatedBy),
+    },
+    requirementRefs: version.requirementRefs.map((requirement) => ({
+      ...requirement,
+      title: safeText(requirement.title),
+      statement: safeText(requirement.statement),
+      state: safeText(requirement.state),
+    })),
+    coverage: version.coverage.map((coverage) => ({
+      ...coverage,
+      requirementTitle: safeText(coverage.requirementTitle),
+    })),
+    elements: version.elements.map((element) => ({
+      ...element,
+      title: safeText(element.title),
+      body: safeText(element.body),
+      fields: element.fields.map((field) => ({
+        ...field,
+        label: safeText(field.label),
+        value: field.value ? safeText(field.value) : field.value,
+      })),
+      actions: element.actions.map(safeText),
+    })),
+    changeSummary: safeText(version.changeSummary),
   };
 }
 

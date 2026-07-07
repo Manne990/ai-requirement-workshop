@@ -510,6 +510,12 @@ export function inferPrototypeFeedbackIntent(
   const normalized = body.toLocaleLowerCase();
 
   if (
+    /\b(change|replace|instead|must|should|need|require)\b/.test(normalized)
+  ) {
+    return "change-request";
+  }
+
+  if (
     /\b(risk|concern|unsafe|privacy|security|fail|failure|wrong|stale)\b/.test(
       normalized,
     )
@@ -526,12 +532,6 @@ export function inferPrototypeFeedbackIntent(
 
   if (/\b(add|include|missing|also need|new requirement)\b/.test(normalized)) {
     return "new-requirement";
-  }
-
-  if (
-    /\b(change|replace|instead|must|should|need|require)\b/.test(normalized)
-  ) {
-    return "change-request";
   }
 
   return "comment";

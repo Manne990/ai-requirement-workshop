@@ -199,6 +199,7 @@ export function sanitizeImportedWorkshopRecord(
       importedAt,
       importedByUserId,
     }),
+    prototypes: [],
     updatedAt: importedAt,
   };
 

@@ -253,9 +253,16 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: /add feedback/i }));
 
     expect(
-      await screen.findByText(/what mitigation or acceptance check/i),
+      await screen.findByText(/should this become a reviewed replacement/i),
     ).toBeInTheDocument();
-    expect(screen.getAllByText(/prototype risk:/i)).not.toHaveLength(0);
+    expect(
+      screen.getAllByText(/requirement change request:/i),
+    ).not.toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: /regenerate/i }));
+
+    expect(await screen.findByText(/^v2$/i)).toBeInTheDocument();
+    expect(screen.getByText(/2\/2 covered/i)).toBeInTheDocument();
   });
 
   it("restores an in-progress workshop from local storage after remount", async () => {

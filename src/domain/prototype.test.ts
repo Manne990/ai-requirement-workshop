@@ -216,25 +216,43 @@ describe("prototype generation domain", () => {
     ).toEqual(originalApproved);
     expect(next.prototypes[0].feedback[0]).toMatchObject({
       body: "Change this so stale data risk appears before dispatch.",
-      intent: "risk",
+      intent: "change-request",
       evidence: {
         messageId: "message-002",
         sourceRequirementIds: ["artifact-requirement-001"],
       },
     });
     expect(next.artifacts.at(-1)).toMatchObject({
-      type: "risk",
-      title: "Prototype risk: Alarm status overview",
+      type: "requirement",
+      title: "Requirement change request: Alarm status overview",
       source: {
         messageId: "message-002",
         artifactId: "artifact-requirement-001",
         participantId: participantIds.human,
       },
-      tags: expect.arrayContaining(["prototype-feedback", "risk"]),
+      tags: expect.arrayContaining([
+        "prototype-feedback",
+        "change-request",
+        "requires-review",
+      ]),
     });
     expect(next.messages.at(-1)?.body).toBe(
-      "What mitigation or acceptance check should we attach to Alarm status overview?",
+      "Should this become a reviewed replacement requirement for Alarm status overview?",
     );
+
+    const regenerated = generatePrototypeFromWorkshop(next, {
+      at: "2026-07-06T10:08:00.000Z",
+    });
+    const regeneratedVersion = getCurrentPrototypeVersion(
+      regenerated.prototypes[0],
+    );
+
+    expect(regeneratedVersion.version).toBe(2);
+    expect(
+      regeneratedVersion.requirementRefs.map(
+        (requirement) => requirement.requirementId,
+      ),
+    ).toContain(next.artifacts.at(-1)?.id);
   });
 });
 

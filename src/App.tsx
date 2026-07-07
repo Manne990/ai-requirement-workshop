@@ -1381,8 +1381,8 @@ function WorkshopRoom() {
         actorId: humanActorId,
         at: generatedAt,
         sourceModel: {
-          provider: "codex",
-          model: codexStatus.model,
+          provider: "local",
+          model: "structured-prototype-v1",
           promptVersion: "prototype-generation-v1",
           generatedBy: participantIds.facilitator,
         },
@@ -1410,8 +1410,8 @@ function WorkshopRoom() {
               targetSurface: "prototype-panel",
             },
             createTelemetryOptions(
-              "codex-bridge",
-              "codex",
+              "canvas",
+              "user",
               "WorkshopRoom.handleGeneratePrototype",
               generatedAt,
             ),
@@ -1421,7 +1421,7 @@ function WorkshopRoom() {
 
       return next;
     });
-  }, [codexStatus.model, createTelemetryOptions, humanActorId]);
+  }, [createTelemetryOptions, humanActorId]);
 
   const handlePrototypeFeedback = useCallback(
     (input: PrototypeFeedbackInput) => {

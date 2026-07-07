@@ -120,7 +120,7 @@ test.describe("workshop feedback loop", () => {
 
     await expect(page.getByText(/prototype feedback on/i)).toBeVisible();
     await expect(
-      page.getByText(/what mitigation or acceptance check/i),
+      page.getByText(/should this become a reviewed replacement/i),
     ).toBeVisible();
 
     await assertNoPageScroll(page);
