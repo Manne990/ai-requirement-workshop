@@ -156,7 +156,7 @@ Return only JSON with this shape:
     }
   ]
 }
-Create 2-6 artifacts. Prefer concrete requirements, risks, assumptions, actors, and questions that can be inspected on the canvas.`;
+Create 2-6 artifacts. Prefer concrete requirements, risks, assumptions, and actors that can be inspected on the canvas. At most one artifact may have type "question"; defer extra questions into risks or assumptions instead.`;
 }
 
 function extractOutputText(data: OpenAIResponsePayload) {

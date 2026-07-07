@@ -73,7 +73,8 @@ export function appendPendingCodexHumanMessage(
   attachments: AttachmentDraft[] = [],
   createdAt = now(),
 ): WorkshopSession {
-  const trimmed = body.trim() || attachmentOnlyMessage(attachments);
+  const trimmed =
+    body.trim() || attachmentOnlyMessage(attachments, sessionLanguage(session));
   if (!trimmed && attachments.length === 0) {
     return session;
   }
@@ -98,6 +99,29 @@ export function appendPendingCodexHumanMessage(
   };
 }
 
+export function removePendingCodexHumanMessage(
+  session: WorkshopSession,
+  body: string,
+  attachments: AttachmentDraft[] = [],
+  updatedAt = now(),
+): WorkshopSession {
+  const trimmed =
+    body.trim() || attachmentOnlyMessage(attachments, sessionLanguage(session));
+  const pendingHumanMessage = findPendingHumanMessage(session, trimmed);
+
+  if (!pendingHumanMessage) {
+    return session;
+  }
+
+  return {
+    ...session,
+    messages: session.messages.filter(
+      (message) => message.id !== pendingHumanMessage.id,
+    ),
+    updatedAt,
+  };
+}
+
 export function applyCodexWorkshopTurn(
   session: WorkshopSession,
   body: string,
@@ -106,7 +130,8 @@ export function applyCodexWorkshopTurn(
   createdAt = now(),
   options: ApplyCodexWorkshopTurnOptions = {},
 ): WorkshopSession {
-  const trimmed = body.trim() || attachmentOnlyMessage(attachments);
+  const trimmed =
+    body.trim() || attachmentOnlyMessage(attachments, sessionLanguage(session));
   if (!trimmed && attachments.length === 0) {
     return session;
   }
@@ -185,8 +210,11 @@ export function applyCodexWorkshopTurn(
     ),
     createdAt,
     relatedArtifactIds: artifacts
-      .filter((artifact) => artifact.type === "question")
-      .slice(0, 2)
+      .filter(
+        (artifact) =>
+          artifact.type === "question" && artifact.status === "draft",
+      )
+      .slice(0, 1)
       .map((artifact) => artifact.id),
   };
 
@@ -241,6 +269,9 @@ function normalizeCodexArtifacts(
   createdAt: string,
   indexOffset = 0,
 ) {
+  const hasExistingDraftQuestion = hasActiveDraftQuestion(session.artifacts);
+  let createdDraftQuestion = false;
+
   return drafts
     .map(readCodexArtifactDraft)
     .filter((draft) => draft.title && draft.content)
@@ -254,6 +285,15 @@ function normalizeCodexArtifacts(
       const createdBy = isValidParticipantId(draft.createdBy)
         ? draft.createdBy
         : participantIds.facilitator;
+      const status =
+        type === "question" &&
+        (hasExistingDraftQuestion || createdDraftQuestion)
+          ? "parked"
+          : "draft";
+
+      if (type === "question" && status === "draft") {
+        createdDraftQuestion = true;
+      }
 
       return {
         id: createId(
@@ -263,7 +303,7 @@ function normalizeCodexArtifacts(
         type,
         title: draft.title.trim(),
         content: draft.content.trim(),
-        status: "draft" satisfies ArtifactStatus,
+        status: status satisfies ArtifactStatus,
         createdBy,
         updatedAt: createdAt,
         source: {
@@ -287,19 +327,27 @@ function createRequirementQualityArtifacts(
       .filter((artifact) => artifact.type === "question")
       .map((artifact) => questionKey(artifact.content)),
   );
+  const hasExistingDraftQuestion = hasActiveDraftQuestion(existingArtifacts);
+  let createdDraftQuestion = false;
 
   return findings
     .filter((finding) => !existingQuestions.has(questionKey(finding.question)))
     .slice(0, 5)
     .map<WorkshopArtifact>((finding, index) => {
       const draft = requirementQualityQuestionDraft(finding);
+      const status =
+        hasExistingDraftQuestion || createdDraftQuestion ? "parked" : "draft";
+
+      if (status === "draft") {
+        createdDraftQuestion = true;
+      }
 
       return {
         id: createId(`artifact-quality-${finding.kind}`, startIndex + index),
         type: draft.type,
         title: draft.title,
         content: draft.content,
-        status: "draft" satisfies ArtifactStatus,
+        status: status satisfies ArtifactStatus,
         createdBy: participantIds.quality,
         updatedAt: createdAt,
         source: {
@@ -310,6 +358,12 @@ function createRequirementQualityArtifacts(
         tags: [...draft.tags, finding.severity].slice(0, 6),
       };
     });
+}
+
+function hasActiveDraftQuestion(artifacts: WorkshopArtifact[]) {
+  return artifacts.some(
+    (artifact) => artifact.type === "question" && artifact.status === "draft",
+  );
 }
 
 function normalizeAttachments(
@@ -373,13 +427,28 @@ function createAttachmentArtifacts(
   }));
 }
 
-function attachmentOnlyMessage(attachments: AttachmentDraft[]) {
+function attachmentOnlyMessage(
+  attachments: AttachmentDraft[],
+  language: WorkshopLanguage,
+) {
   if (attachments.length === 0) {
     return "";
   }
 
   const fileNames = attachments.map((attachment) => attachment.name).join(", ");
-  return `Attached files for workshop review: ${fileNames}`;
+  return language === "sv"
+    ? `Bifogade filer för workshopgranskning: ${fileNames}`
+    : `Attached files for workshop review: ${fileNames}`;
+}
+
+function sessionLanguage(session: WorkshopSession) {
+  const recentHumanText = session.messages
+    .filter((message) => message.participantId === participantIds.human)
+    .slice(-4)
+    .map((message) => message.body)
+    .join(" ");
+
+  return detectWorkshopLanguage(recentHumanText);
 }
 
 function readCodexArtifactDraft(draft: unknown) {

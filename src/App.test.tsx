@@ -157,6 +157,66 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
+  it("restores a failed Codex turn without keeping the pending message in canonical chat history", async () => {
+    let rejectWorkshopTurn: (() => void) | undefined;
+    const failedFetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+
+        if (url.endsWith("/api/codex/status")) {
+          return jsonResponse({
+            configured: true,
+            model: "gpt-5.5",
+            message: "Local Codex token loaded from environment.",
+          });
+        }
+
+        if (url.endsWith("/api/codex/workshop-turn")) {
+          return await new Promise<Response>((resolve) => {
+            rejectWorkshopTurn = () =>
+              resolve(jsonResponse({ error: "Codex unavailable." }, 503));
+          });
+        }
+
+        if (url.endsWith("/api/workshops/backup")) {
+          return jsonResponse({
+            backedUpAt: "2026-07-06T08:30:00.000Z",
+            message: "Saved in browser and backed up to disk.",
+          });
+        }
+
+        return jsonResponse(
+          {
+            error: `Unexpected endpoint: ${url}; body=${String(init?.body ?? "")}`,
+          },
+          404,
+        );
+      },
+    );
+    vi.stubGlobal("fetch", failedFetchMock);
+
+    render(<App />);
+    await registerForWorkshopAccess();
+
+    const message =
+      "A workshop owner needs a dashboard for failed AI turn testing.";
+    fireEvent.change(screen.getByLabelText(/describe, challenge, or refine/i), {
+      target: { value: message },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    const chatLog = screen.getByRole("log");
+    expect(await within(chatLog).findByText(message)).toBeInTheDocument();
+
+    rejectWorkshopTurn?.();
+
+    expect(await screen.findByText(/codex unavailable/i)).toBeInTheDocument();
+    expect(within(chatLog).queryByText(message)).not.toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/describe, challenge, or refine/i),
+    ).toHaveValue(message);
+  });
+
   it("generates a prototype preview and records prototype feedback", async () => {
     render(<App />);
     await registerForWorkshopAccess();

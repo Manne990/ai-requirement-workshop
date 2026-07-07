@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { applyCodexWorkshopTurn } from "./codexWorkshop";
+import {
+  appendPendingCodexHumanMessage,
+  applyCodexWorkshopTurn,
+  removePendingCodexHumanMessage,
+} from "./codexWorkshop";
 import { createInitialWorkshopSession } from "./workshop";
 
 describe("Codex workshop turn", () => {
@@ -274,6 +278,115 @@ describe("Codex workshop turn", () => {
     expect(facilitatorBody).toContain("Vilken detalj");
     expect(facilitatorBody).not.toContain("!");
     expect(questionCount(facilitatorBody)).toBe(1);
+  });
+
+  it("removes a pending human message when a Codex turn fails before becoming canonical", () => {
+    const session = createInitialWorkshopSession("2026-07-01T10:00:00.000Z");
+    const pending = appendPendingCodexHumanMessage(
+      session,
+      "A workshop owner needs a dashboard.",
+      [],
+      "2026-07-01T10:01:00.000Z",
+    );
+
+    expect(pending.messages).toHaveLength(session.messages.length + 1);
+
+    const cleaned = removePendingCodexHumanMessage(
+      pending,
+      "A workshop owner needs a dashboard.",
+      [],
+      "2026-07-01T10:02:00.000Z",
+    );
+
+    expect(cleaned.messages).toEqual(session.messages);
+    expect(cleaned.updatedAt).toBe("2026-07-01T10:02:00.000Z");
+  });
+
+  it("uses the existing workshop language for attachment-only turns", () => {
+    const swedishSession = applyCodexWorkshopTurn(
+      createInitialWorkshopSession("2026-07-01T10:00:00.000Z"),
+      "Vi behöver förstå larmsystemets datakällor.",
+      {
+        facilitatorMessage:
+          "Jag har fångat detta. Vilken datakälla ska vi börja med?",
+        artifacts: [],
+      },
+      [],
+      "2026-07-01T10:01:00.000Z",
+    );
+
+    const next = applyCodexWorkshopTurn(
+      swedishSession,
+      "",
+      {
+        facilitatorMessage:
+          "Jag har fångat filen. Vilken del ska vi verifiera först?",
+        artifacts: [],
+      },
+      [
+        {
+          name: "forarbete.docx",
+          mimeType:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          size: 128,
+          extractedText: "Förarbete om larmdashboard.",
+          summary: "Förarbete om larmdashboard.",
+          status: "extracted",
+          tags: ["attachment"],
+        },
+      ],
+      "2026-07-01T10:02:00.000Z",
+    );
+
+    expect(next.messages.at(-2)?.body).toBe(
+      "Bifogade filer för workshopgranskning: forarbete.docx",
+    );
+    expect(next.messages.at(-1)?.body).toContain("Vilken del");
+  });
+
+  it("keeps only one active draft question per turn and parks additional questions", () => {
+    const next = applyCodexWorkshopTurn(
+      createInitialWorkshopSession("2026-07-01T10:00:00.000Z"),
+      "A release team needs a dashboard that should improve response quality.",
+      {
+        facilitatorMessage: "What should we clarify first?",
+        artifacts: [
+          {
+            type: "question",
+            title: "Primary question",
+            content: "Which response quality metric matters most?",
+            createdBy: "agent-quality",
+          },
+          {
+            type: "question",
+            title: "Secondary question",
+            content: "Which team owns the metric?",
+            createdBy: "agent-business",
+          },
+          {
+            type: "requirement",
+            title: "Response quality dashboard",
+            content:
+              "The dashboard should improve response quality for release teams.",
+            createdBy: "agent-quality",
+          },
+        ],
+      },
+      [],
+      "2026-07-01T10:01:00.000Z",
+    );
+
+    const questions = next.artifacts.filter(
+      (artifact) => artifact.type === "question",
+    );
+
+    expect(
+      questions.filter((artifact) => artifact.status === "draft"),
+    ).toHaveLength(1);
+    expect(
+      questions.filter((artifact) => artifact.status === "parked").length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(next.messages.at(-1)?.relatedArtifactIds).toHaveLength(1);
   });
 });
 

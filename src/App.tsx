@@ -67,6 +67,7 @@ import {
 import {
   appendPendingCodexHumanMessage,
   applyCodexWorkshopTurn,
+  removePendingCodexHumanMessage,
 } from "./domain/codexWorkshop";
 import { aiProcessingDisclosure } from "./domain/security";
 import {
@@ -894,7 +895,6 @@ function WorkshopRoom() {
       submittedAt,
     );
     setSession(sessionWithPendingMessage);
-    void publishRealtimeSessionDelta(session, sessionWithPendingMessage);
     if (submittedMessage) {
       recordMissionControlTelemetry(
         createMessageSentTelemetry(
@@ -936,10 +936,18 @@ function WorkshopRoom() {
               }
             : undefined,
         );
-        void publishRealtimeSessionDelta(current, next);
+        void publishRealtimeSessionDelta(session, next);
         return next;
       });
     } catch (error) {
+      setSession((current) =>
+        removePendingCodexHumanMessage(
+          current,
+          message,
+          attachmentsForTurn,
+          new Date().toISOString(),
+        ),
+      );
       setDraft(message);
       setPendingAttachments(attachmentsForTurn);
       setCodexError(
@@ -1177,25 +1185,32 @@ function WorkshopRoom() {
           (artifact) => artifact.id === artifactId,
         );
 
-        if (
-          previousArtifact?.type === "requirement" &&
-          nextArtifact?.type === "requirement" &&
-          previousArtifact.status !== nextArtifact.status
-        ) {
-          emitRequirementStatusTelemetry(
-            next,
-            nextArtifact,
-            previousArtifact.status,
-            createTelemetryOptions(
-              "canvas",
-              "user",
-              "WorkshopRoom.handleStatusChange",
-            ),
-          );
-          void publishRealtimeArtifactStatusChange(
-            previousArtifact,
-            nextArtifact,
-          );
+        if (previousArtifact && nextArtifact) {
+          const statusChanged = previousArtifact.status !== nextArtifact.status;
+
+          if (
+            statusChanged &&
+            previousArtifact.type === "requirement" &&
+            nextArtifact.type === "requirement"
+          ) {
+            emitRequirementStatusTelemetry(
+              next,
+              nextArtifact,
+              previousArtifact.status,
+              createTelemetryOptions(
+                "canvas",
+                "user",
+                "WorkshopRoom.handleStatusChange",
+              ),
+            );
+          }
+
+          if (statusChanged) {
+            void publishRealtimeArtifactStatusChange(
+              previousArtifact,
+              nextArtifact,
+            );
+          }
         }
 
         return next;
