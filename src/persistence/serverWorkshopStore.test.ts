@@ -30,7 +30,7 @@ describe("serverWorkshopStore", () => {
         VITE_WORKSHOP_RECORD_ENDPOINT: " /api/workshops ",
         VITE_ALLOW_UNAUTHENTICATED_WORKSHOP_RECORD_ENDPOINT: "true",
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       serverWorkshopEndpoint({
         VITE_WORKSHOP_RECORD_ENDPOINT: " /api/workshops ",

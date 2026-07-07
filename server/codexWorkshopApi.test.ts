@@ -20,7 +20,7 @@ describe("codexWorkshopApi", () => {
     expect(codexApiKey({ CODEX_API_TOKEN: "alias-token" })).toBe("alias-token");
   });
 
-  it("fails closed for unauthenticated Codex turns in production unless explicitly enabled", () => {
+  it("fails closed for unauthenticated Codex turns in production", () => {
     expect(isUnauthenticatedCodexWorkshopApiEnabled({ NODE_ENV: "test" })).toBe(
       true,
     );
@@ -32,7 +32,7 @@ describe("codexWorkshopApi", () => {
         VERCEL_ENV: "production",
         AI_REQUIREMENT_WORKSHOP_ALLOW_UNAUTHENTICATED_CODEX_API: "true",
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("parses JSON even when a model wraps the object in explanatory text", () => {

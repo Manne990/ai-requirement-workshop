@@ -41,10 +41,7 @@ export function codexStatusPayload(env: Env = process.env) {
 export function isUnauthenticatedCodexWorkshopApiEnabled(
   env: Env = process.env,
 ) {
-  return (
-    !isProductionServerEnv(env) ||
-    env.AI_REQUIREMENT_WORKSHOP_ALLOW_UNAUTHENTICATED_CODEX_API === "true"
-  );
+  return !isProductionServerEnv(env);
 }
 
 export async function createCodexWorkshopTurn(

@@ -131,11 +131,7 @@ export function workshopRecordsDir(env: WorkshopRecordsApiEnv = process.env) {
 export function isUnauthenticatedWorkshopRecordsApiEnabled(
   env: WorkshopRecordsApiEnv = process.env,
 ) {
-  return (
-    !isProductionServerEnv(env) ||
-    env.AI_REQUIREMENT_WORKSHOP_ALLOW_UNAUTHENTICATED_WORKSHOP_RECORDS ===
-      "true"
-  );
+  return !isProductionServerEnv(env);
 }
 
 function isProductionServerEnv(env: WorkshopRecordsApiEnv) {

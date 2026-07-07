@@ -118,7 +118,7 @@ describe("workshopRecordsApi", () => {
     });
   });
 
-  it("fails closed in production unless unauthenticated file storage is explicitly enabled", async () => {
+  it("fails closed in production", async () => {
     await expect(
       handleWorkshopRecordsRequest(
         { method: "GET", url: "/api/workshops" },
@@ -145,9 +145,12 @@ describe("workshopRecordsApi", () => {
             "true",
         },
       ),
-    ).resolves.toMatchObject({
-      statusCode: 200,
-      body: { summaries: [] },
+    ).resolves.toEqual({
+      statusCode: 501,
+      body: {
+        error:
+          "Server-backed workshop records require authenticated storage in production.",
+      },
     });
   });
 });

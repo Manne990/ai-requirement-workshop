@@ -92,10 +92,7 @@ function normalizeEndpoint(endpoint: string) {
 }
 
 function isUnauthenticatedServerStoreAllowed(env: Record<string, unknown>) {
-  return (
-    !isProductionRuntime(env) ||
-    env.VITE_ALLOW_UNAUTHENTICATED_WORKSHOP_RECORD_ENDPOINT === "true"
-  );
+  return !isProductionRuntime(env);
 }
 
 function isProductionRuntime(env: Record<string, unknown>) {
