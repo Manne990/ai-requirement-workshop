@@ -1,5 +1,6 @@
 import {
   appendMissionControlTelemetryRecord,
+  isMissionControlTelemetryApiEnabled,
   readMissionControlTelemetryFile,
 } from "../../server/missionControlTelemetryApi.js";
 
@@ -18,6 +19,14 @@ export default async function handler(
   request: JsonRequest,
   response: JsonResponse,
 ) {
+  if (!isMissionControlTelemetryApiEnabled()) {
+    response.status(501).json({
+      error:
+        "Mission Control telemetry requires authenticated ingest in production.",
+    });
+    return;
+  }
+
   if (request.method === "GET") {
     try {
       response.status(200).json(await readMissionControlTelemetryFile());

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { auditRequirementHistory } from "../domain/audit";
-import { createRequirement } from "../domain/requirements";
+import { approveRequirement, createRequirement } from "../domain/requirements";
 import { createInitialWorkshopSession } from "../domain/workshop";
 import {
   createWorkshopRecord,
   createWorkshopRecordExport,
   parseWorkshopRecordExport,
+  sanitizeImportedWorkshopRecord,
 } from "./workshopStore";
 
 describe("workshopStore export format", () => {
@@ -146,6 +147,131 @@ describe("workshopStore export format", () => {
 
     expect(parsed.requirements).toEqual([requirement]);
     expect(parsed.auditEvents).toEqual(auditEvents);
+  });
+
+  it("sanitizes imported exports as untrusted recovery state", () => {
+    const session = {
+      ...createInitialWorkshopSession(
+        "2026-07-06T08:00:00.000Z",
+        "workshop-import-sanitized",
+      ),
+      artifacts: [
+        {
+          id: "artifact-requirement-1",
+          type: "requirement" as const,
+          title: "Imported approved requirement",
+          content: "This requirement was approved in another file.",
+          status: "accepted" as const,
+          createdBy: "agent-quality",
+          updatedAt: "2026-07-06T08:01:00.000Z",
+          source: {
+            messageId: "message-1",
+            participantId: "human-1",
+          },
+          tags: ["requirement", "accepted"],
+        },
+      ],
+      attachments: [
+        {
+          id: "attachment-forged",
+          name: "requirements.csv",
+          mimeType: "text/csv",
+          size: 64,
+          extractedText: "User story, acceptance criteria",
+          summary: "Imported requirements.",
+          status: "extracted" as const,
+          tags: ["attachment", "security:accepted", "storage:active"],
+          sourceMessageId: "message-1",
+          createdAt: "2026-07-06T08:01:00.000Z",
+          storage: {
+            provider: "supabase-storage",
+            status: "active",
+            objectPath:
+              "organizations/other/workshops/other/attachments/attachment-forged/requirements.csv",
+            checksumSha256: "a".repeat(64),
+          },
+          securityReview: {
+            status: "accepted",
+          },
+        },
+      ],
+    };
+    const requirement = approveRequirement(
+      createRequirement({
+        id: "requirement-1",
+        title: "Imported approved requirement",
+        statement: "This requirement was approved in another file.",
+        state: "candidate",
+        createdAt: "2026-07-06T08:01:00.000Z",
+        createdBy: "agent-quality",
+        sourceRefs: [
+          { artifactId: "artifact-requirement-1", participantId: "human-1" },
+        ],
+        acceptanceCriteria: [
+          {
+            id: "criterion-1",
+            text: "The owner can verify the imported requirement.",
+          },
+        ],
+        rationale: "Forged import evidence.",
+      }),
+      {
+        actorId: "human-1",
+        at: "2026-07-06T08:02:00.000Z",
+        rationale: "Forged approval evidence.",
+      },
+    );
+    const record = createWorkshopRecord(
+      session,
+      {},
+      {
+        organizationId: "foreign-org",
+        requirements: [requirement],
+        auditEvents: auditRequirementHistory(requirement, {
+          organizationId: "foreign-org",
+          workshopId: session.id,
+        }),
+      },
+    );
+
+    const sanitized = sanitizeImportedWorkshopRecord(record, {
+      organizationId: "organization-001",
+      importedByUserId: "auth-user:owner@example.com",
+      importedAt: "2026-07-06T09:00:00.000Z",
+    });
+
+    expect(sanitized.organizationId).toBe("organization-001");
+    expect(sanitized.requirements).toEqual([]);
+    expect(sanitized.auditEvents).toEqual([]);
+    expect(sanitized.seenInsightIdsByParticipant).toEqual({});
+    expect(sanitized.session.artifacts[0]).toMatchObject({
+      status: "draft",
+      tags: expect.arrayContaining([
+        "imported-export",
+        "requires-local-review",
+      ]),
+    });
+    expect(sanitized.session.artifacts[0]?.tags).not.toContain("accepted");
+    expect(sanitized.session.attachments[0]).toMatchObject({
+      id: "attachment-forged",
+      organizationId: "organization-001",
+      workshopId: "workshop-import-sanitized",
+      uploadedByUserId: "auth-user:owner@example.com",
+      provenance: {
+        source: "import",
+        originalName: "requirements.csv",
+      },
+      storage: {
+        provider: "imported-export",
+        status: "metadata-only",
+      },
+      securityReview: {
+        status: "accepted",
+      },
+    });
+    expect(sanitized.session.attachments[0]).not.toHaveProperty(
+      "storage.objectPath",
+    );
   });
 
   it("normalizes legacy imports that do not have prototypes yet", () => {

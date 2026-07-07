@@ -44,13 +44,13 @@ test.describe("workshop feedback loop", () => {
       page.getByRole("button", { name: /codex thinking/i }),
     ).toBeDisabled();
     await expect(
-      page.getByText(/what measurable behavior proves/i),
+      page.getByText(/what acceptance criterion would let/i),
     ).toHaveCount(0);
 
     releaseWorkshopTurn?.();
 
     await expect(
-      page.getByText(/what measurable behavior proves/i),
+      page.getByText(/what acceptance criterion would let/i).first(),
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: /codex thinking/i }),

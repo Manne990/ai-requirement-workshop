@@ -1,7 +1,15 @@
 import { redactSensitiveText } from "../domain/security";
 import type { AuditEvent } from "../domain/audit";
+import {
+  createProductionAttachmentRecord,
+  type ProductionAttachmentRecord,
+} from "../domain/attachmentSecurity";
+import type {
+  AttachmentDraft,
+  WorkshopAttachment,
+} from "../domain/attachments";
 import type { Requirement } from "../domain/requirements";
-import type { WorkshopSession } from "../domain/workshop";
+import type { WorkshopArtifact, WorkshopSession } from "../domain/workshop";
 
 export type SeenInsightIdsByParticipant = Record<string, string[]>;
 
@@ -55,6 +63,12 @@ export type CreateWorkshopRecordOptions = {
   organizationId?: string;
   requirements?: Requirement[];
   auditEvents?: AuditEvent[];
+};
+
+export type SanitizeImportedWorkshopRecordOptions = {
+  organizationId?: string;
+  importedByUserId?: string;
+  importedAt?: string;
 };
 
 const dbName = "ai-requirement-workshop";
@@ -166,6 +180,39 @@ export function parseWorkshopRecordExport(raw: string): WorkshopRecord {
   return normalizeWorkshopRecord(record);
 }
 
+export function sanitizeImportedWorkshopRecord(
+  record: WorkshopRecord,
+  options: SanitizeImportedWorkshopRecordOptions = {},
+): WorkshopRecord {
+  const importedAt = options.importedAt ?? new Date().toISOString();
+  const organizationId =
+    normalizeOptionalText(options.organizationId) ??
+    record.organizationId ??
+    "local-import";
+  const importedByUserId =
+    normalizeOptionalText(options.importedByUserId) ?? "import";
+  const session = {
+    ...record.session,
+    artifacts: record.session.artifacts.map(sanitizeImportedArtifact),
+    attachments: sanitizeImportedAttachments(record, {
+      organizationId,
+      importedAt,
+      importedByUserId,
+    }),
+    updatedAt: importedAt,
+  };
+
+  return {
+    ...record,
+    organizationId,
+    updatedAt: importedAt,
+    session,
+    requirements: [],
+    auditEvents: [],
+    seenInsightIdsByParticipant: {},
+  };
+}
+
 async function loadAllWorkshopRecords() {
   if (canUseIndexedDb()) {
     const db = await openDatabase();
@@ -177,6 +224,101 @@ async function loadAllWorkshopRecords() {
 
 function canUseIndexedDb() {
   return typeof indexedDB !== "undefined";
+}
+
+function sanitizeImportedArtifact(
+  artifact: WorkshopArtifact,
+): WorkshopArtifact {
+  return {
+    ...artifact,
+    status: "draft",
+    tags: [
+      ...artifact.tags.filter((tag) => tag !== "accepted"),
+      "imported-export",
+      "requires-local-review",
+    ].slice(0, 10),
+  };
+}
+
+function sanitizeImportedAttachments(
+  record: WorkshopRecord,
+  context: {
+    organizationId: string;
+    importedAt: string;
+    importedByUserId: string;
+  },
+): WorkshopAttachment[] {
+  return record.session.attachments.map((attachment, index) => {
+    const normalized = normalizeImportedAttachment(attachment, index, record);
+
+    return createProductionAttachmentRecord({
+      draft: normalized.draft,
+      id: normalized.id,
+      organizationId: context.organizationId,
+      workshopId: record.id,
+      sourceMessageId: normalized.sourceMessageId,
+      uploadedByUserId: context.importedByUserId,
+      createdAt: normalized.createdAt || context.importedAt,
+      source: "import",
+      storage: {
+        provider: "imported-export",
+        status: "metadata-only",
+        storedAt: context.importedAt,
+      },
+    }) satisfies ProductionAttachmentRecord;
+  });
+}
+
+function normalizeImportedAttachment(
+  attachment: WorkshopAttachment,
+  index: number,
+  record: WorkshopRecord,
+) {
+  return {
+    id: boundedString(attachment.id, 120, `attachment-import-${index + 1}`),
+    sourceMessageId: boundedString(
+      attachment.sourceMessageId,
+      120,
+      `import:${record.id}`,
+    ),
+    createdAt: boundedString(attachment.createdAt, 40, record.updatedAt),
+    draft: {
+      name: boundedString(attachment.name, 180),
+      mimeType: boundedString(attachment.mimeType, 120),
+      size: finiteNumber(attachment.size),
+      extractedText: boundedString(attachment.extractedText, 6000),
+      summary: boundedString(attachment.summary, 1000),
+      status:
+        attachment.status === "extracted" ||
+        attachment.status === "metadata-only"
+          ? attachment.status
+          : "metadata-only",
+      tags: sanitizeImportedAttachmentTags(attachment.tags),
+    } satisfies AttachmentDraft,
+  };
+}
+
+function sanitizeImportedAttachmentTags(value: unknown) {
+  return Array.isArray(value)
+    ? value
+        .filter((tag): tag is string => typeof tag === "string")
+        .map((tag) => tag.trim())
+        .filter((tag) => tag && !/^(security|storage):/i.test(tag))
+        .map((tag) => boundedString(tag, 80))
+        .slice(0, 8)
+    : [];
+}
+
+function boundedString(value: unknown, maxLength: number, fallback = "") {
+  const normalized =
+    typeof value === "string" && value.trim() ? value.trim() : fallback;
+  return normalized.length <= maxLength
+    ? normalized
+    : `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
+}
+
+function finiteNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function openDatabase(): Promise<IDBDatabase> {

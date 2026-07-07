@@ -64,6 +64,13 @@ const validArtifactTypes: ArtifactType[] = [
 ];
 
 const validParticipantIds = Object.values(participantIds);
+const validParticipantStatuses: ParticipantStatus[] = [
+  "idle",
+  "listening",
+  "thinking",
+  "commenting",
+  "concern",
+];
 
 const now = () => new Date().toISOString();
 
@@ -139,9 +146,7 @@ export function applyCodexWorkshopTurn(
   const pendingHumanMessage = findPendingHumanMessage(session, trimmed);
   const facilitatorMessageIndex =
     session.messages.length + (pendingHumanMessage ? 1 : 2);
-  const language = detectWorkshopLanguage(
-    `${trimmed} ${turn.facilitatorMessage}`,
-  );
+  const language = detectWorkshopLanguage(trimmed);
   const humanMessage: WorkshopMessage = pendingHumanMessage
     ? { ...pendingHumanMessage, body: trimmed, createdAt }
     : {
@@ -565,9 +570,10 @@ function updateParticipantsFromCodex(
   const activeParticipantIds = new Set(
     artifacts.map((artifact) => artifact.createdBy),
   );
+  const safeUpdates = normalizeParticipantUpdates(updates);
 
   return participants.map((participant) => {
-    const explicit = updates.find(
+    const explicit = safeUpdates.find(
       (update) => update.participantId === participant.id,
     );
     if (explicit) {
@@ -604,6 +610,35 @@ function updateParticipantsFromCodex(
       currentActivity: "Reviewing the canvas",
     };
   });
+}
+
+function normalizeParticipantUpdates(
+  updates: CodexParticipantUpdate[],
+): CodexParticipantUpdate[] {
+  return updates.flatMap((update) => {
+    if (
+      !validParticipantIds.includes(
+        update.participantId as (typeof validParticipantIds)[number],
+      ) ||
+      !validParticipantStatuses.includes(update.status)
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        participantId: update.participantId,
+        status: update.status,
+        currentActivity: safeParticipantActivity(update.currentActivity),
+      },
+    ];
+  });
+}
+
+function safeParticipantActivity(value: unknown) {
+  return typeof value === "string" && value.trim()
+    ? value.trim().slice(0, 160)
+    : "Listening for workshop signals";
 }
 
 function isValidParticipantId(

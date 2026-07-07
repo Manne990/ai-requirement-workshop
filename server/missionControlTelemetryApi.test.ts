@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   appendMissionControlTelemetryRecord,
+  isMissionControlTelemetryApiEnabled,
   missionControlTelemetryFilePath,
   normalizeMissionControlTelemetryEvent,
   readMissionControlTelemetryFile,
@@ -98,6 +99,16 @@ describe("missionControlTelemetryApi", () => {
       path: missionControlTelemetryFilePath(env),
       records: [],
     });
+  });
+
+  it("fails closed for unauthenticated telemetry in Vercel production", () => {
+    expect(isMissionControlTelemetryApiEnabled({})).toBe(true);
+    expect(
+      isMissionControlTelemetryApiEnabled({ NODE_ENV: "production" }),
+    ).toBe(true);
+    expect(
+      isMissionControlTelemetryApiEnabled({ VERCEL_ENV: "production" }),
+    ).toBe(false);
   });
 });
 

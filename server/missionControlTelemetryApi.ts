@@ -44,6 +44,12 @@ export async function appendMissionControlTelemetryRecord(
   };
 }
 
+export function isMissionControlTelemetryApiEnabled(
+  env: MissionControlTelemetryEnv = process.env,
+) {
+  return env.VERCEL_ENV !== "production";
+}
+
 export async function readMissionControlTelemetryFile(
   env: MissionControlTelemetryEnv = process.env,
   limit = 100,

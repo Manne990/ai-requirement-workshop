@@ -50,7 +50,7 @@ test.describe("production workshop hardening", () => {
 
     await expect(page.getByRole("log").getByText(message)).toBeVisible();
     await expect(
-      page.getByText(/what measurable behavior proves stale-data handling/i),
+      page.getByText(/what acceptance criterion would let/i).first(),
     ).toBeVisible();
 
     await approveVisibleRequirementPath(page);

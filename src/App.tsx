@@ -155,6 +155,7 @@ import {
   createWorkshopRecordExport,
   createWorkshopRecord,
   parseWorkshopRecordExport,
+  sanitizeImportedWorkshopRecord,
   toWorkshopSummary,
   type SeenInsightIdsByParticipant,
   type WorkshopRecord,
@@ -1075,7 +1076,13 @@ function WorkshopRoom() {
           throw new Error("Imported workshop belongs to another organization.");
         }
 
-        const record = scopeWorkshopRecord(parsedRecord, organizationId);
+        const record = scopeWorkshopRecord(
+          sanitizeImportedWorkshopRecord(parsedRecord, {
+            organizationId,
+            importedByUserId: humanActorId,
+          }),
+          organizationId,
+        );
         await workshopRepository.saveRecord(record);
         workshopRepository.setActiveWorkshopId(record.id);
         workshopOpenTriggerRef.current = "user";
@@ -1112,7 +1119,7 @@ function WorkshopRoom() {
         }
       }
     },
-    [organizationRuntime],
+    [humanActorId, organizationRuntime],
   );
 
   const handleOpenWorkshop = useCallback(
