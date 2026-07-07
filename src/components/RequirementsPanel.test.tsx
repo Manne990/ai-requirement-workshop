@@ -69,11 +69,45 @@ describe("RequirementsPanel", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Reject Incident summary" }),
     );
+    expect(onReject).not.toHaveBeenCalled();
+    const rejection = screen.getByRole("group", {
+      name: /rejection confirmation for incident summary/i,
+    });
+    expect(rejection).toHaveTextContent(
+      /rejecting excludes this requirement from report scope/i,
+    );
+    fireEvent.click(
+      within(rejection).getByRole("button", {
+        name: "Confirm reject Incident summary",
+      }),
+    );
+
     fireEvent.click(
       screen.getByRole("button", { name: "Supersede Confidence label" }),
     );
+    expect(onSupersede).not.toHaveBeenCalled();
+    const supersede = screen.getByRole("group", {
+      name: /supersede confirmation for confidence label/i,
+    });
+    expect(supersede).toHaveTextContent(/marks this requirement as replaced/i);
+    fireEvent.click(
+      within(supersede).getByRole("button", {
+        name: "Confirm supersede Confidence label",
+      }),
+    );
+
     fireEvent.click(
       screen.getByRole("button", { name: "Baseline Confidence label" }),
+    );
+    expect(onBaseline).not.toHaveBeenCalled();
+    const baseline = screen.getByRole("group", {
+      name: /baseline confirmation for confidence label/i,
+    });
+    expect(baseline).toHaveTextContent(/reviewed release scope/i);
+    fireEvent.click(
+      within(baseline).getByRole("button", {
+        name: "Confirm baseline Confidence label",
+      }),
     );
 
     expect(onApprove).toHaveBeenCalledWith(

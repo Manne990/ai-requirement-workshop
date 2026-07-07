@@ -664,6 +664,11 @@ describe("App", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /baseline requirement candidate/i }),
     );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /confirm baseline requirement candidate/i,
+      }),
+    );
     await waitForTelemetryEvent("requirement.baselined");
 
     fireEvent.click(
@@ -674,6 +679,11 @@ describe("App", () => {
 
     fireEvent.click(
       screen.getByRole("button", { name: /supersede requirement candidate/i }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /confirm supersede requirement candidate/i,
+      }),
     );
     await waitForTelemetryEvent("requirement.superseded");
 
@@ -687,6 +697,11 @@ describe("App", () => {
       screen.getAllByRole("button", {
         name: /reject requirement candidate/i,
       })[0],
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /confirm reject requirement candidate/i,
+      }),
     );
     await waitForTelemetryEvent("requirement.rejected");
 

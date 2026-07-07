@@ -187,11 +187,21 @@ function RequirementCard({
   const sourceCount =
     requirement.sourceArtifactIds.length + requirement.sourceMessageIds.length;
   const latestHistory = requirement.history.at(-1);
-  const [isApprovalConfirmationOpen, setIsApprovalConfirmationOpen] =
-    useState(false);
+  const [pendingAction, setPendingAction] = useState<RequirementAction | null>(
+    null,
+  );
   const blockingFindingCount = qualityFindings.filter(
     (finding) => finding.severity === "blocker",
   ).length;
+  const actionHandlers: Record<
+    RequirementAction,
+    ((requirement: RequirementPanelItem) => void) | undefined
+  > = {
+    approve: onApprove,
+    reject: onReject,
+    supersede: onSupersede,
+    baseline: onBaseline,
+  };
 
   return (
     <article
@@ -274,71 +284,96 @@ function RequirementCard({
           action="approve"
           label="Approve"
           requirement={requirement}
-          onAction={
-            onApprove ? () => setIsApprovalConfirmationOpen(true) : undefined
-          }
+          onAction={onApprove ? () => setPendingAction("approve") : undefined}
         />
         <ActionButton
           action="reject"
           label="Reject"
           requirement={requirement}
-          onAction={onReject}
+          onAction={onReject ? () => setPendingAction("reject") : undefined}
         />
         <ActionButton
           action="supersede"
           label="Supersede"
           requirement={requirement}
-          onAction={onSupersede}
+          onAction={
+            onSupersede ? () => setPendingAction("supersede") : undefined
+          }
         />
         <ActionButton
           action="baseline"
           label="Baseline"
           requirement={requirement}
-          onAction={onBaseline}
+          onAction={onBaseline ? () => setPendingAction("baseline") : undefined}
         />
       </div>
 
-      {isApprovalConfirmationOpen ? (
-        <div
-          className="requirement-card__approval-confirmation"
-          role="group"
-          aria-label={`Approval confirmation for ${requirement.title}`}
-        >
-          <div>
-            <strong>Confirm approval</strong>
-            <span>{requirementLifecycleLabel[requirement.status]}</span>
-          </div>
-          <p>
-            Approving includes this requirement in reports and prototype inputs.
-          </p>
-          <blockquote>{requirement.statement}</blockquote>
-          <small>
-            {sourceCount} source{sourceCount === 1 ? "" : "s"} linked
-          </small>
-          <div>
-            <button
-              type="button"
-              onClick={() => {
-                onApprove?.(requirement);
-                setIsApprovalConfirmationOpen(false);
-              }}
-              aria-label={`Confirm approve ${requirement.title}`}
-            >
-              <Check aria-hidden="true" size={15} />
-              Confirm approve
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsApprovalConfirmationOpen(false)}
-              aria-label={`Cancel approve ${requirement.title}`}
-            >
-              <X aria-hidden="true" size={15} />
-              Cancel
-            </button>
-          </div>
-        </div>
+      {pendingAction ? (
+        <ActionConfirmation
+          action={pendingAction}
+          requirement={requirement}
+          sourceCount={sourceCount}
+          onCancel={() => setPendingAction(null)}
+          onConfirm={() => {
+            actionHandlers[pendingAction]?.(requirement);
+            setPendingAction(null);
+          }}
+        />
       ) : null}
     </article>
+  );
+}
+
+function ActionConfirmation({
+  action,
+  requirement,
+  sourceCount,
+  onCancel,
+  onConfirm,
+}: {
+  action: RequirementAction;
+  requirement: RequirementPanelItem;
+  sourceCount: number;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const Icon = actionIcon[action];
+  const label = actionLabel[action];
+
+  return (
+    <div
+      className={`requirement-card__action-confirmation action-${action}`}
+      role="group"
+      aria-label={`${label} confirmation for ${requirement.title}`}
+    >
+      <div>
+        <strong>Confirm {label.toLowerCase()}</strong>
+        <span>{requirementLifecycleLabel[requirement.status]}</span>
+      </div>
+      <p>{actionConsequence[action]}</p>
+      <blockquote>{requirement.statement}</blockquote>
+      <small>
+        {sourceCount} source{sourceCount === 1 ? "" : "s"} linked
+      </small>
+      <div>
+        <button
+          type="button"
+          onClick={onConfirm}
+          aria-label={`Confirm ${action} ${requirement.title}`}
+        >
+          <Icon aria-hidden="true" size={15} />
+          Confirm {action}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          aria-label={`Cancel ${action} ${requirement.title}`}
+        >
+          <X aria-hidden="true" size={15} />
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -375,6 +410,24 @@ const actionIcon: Record<RequirementAction, typeof Check> = {
   reject: X,
   supersede: GitCompareArrows,
   baseline: Archive,
+};
+
+const actionLabel: Record<RequirementAction, string> = {
+  approve: "Approval",
+  reject: "Rejection",
+  supersede: "Supersede",
+  baseline: "Baseline",
+};
+
+const actionConsequence: Record<RequirementAction, string> = {
+  approve:
+    "Approving includes this requirement in reports and prototype inputs.",
+  reject:
+    "Rejecting excludes this requirement from report scope and records a review decision.",
+  supersede:
+    "Superseding keeps the history but marks this requirement as replaced.",
+  baseline:
+    "Baselining freezes this requirement as part of the reviewed release scope.",
 };
 
 function canRunAction(

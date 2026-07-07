@@ -297,7 +297,7 @@
   opacity: 0.42;
 }
 
-.requirement-card__approval-confirmation {
+.requirement-card__action-confirmation {
   display: grid;
   gap: 8px;
   border: 1px solid rgba(134, 239, 172, 0.32);
@@ -306,47 +306,62 @@
   background: rgba(22, 101, 52, 0.13);
 }
 
-.requirement-card__approval-confirmation > div:first-child,
-.requirement-card__approval-confirmation > div:last-child {
+.requirement-card__action-confirmation.action-reject {
+  border-color: rgba(251, 113, 133, 0.34);
+  background: rgba(127, 29, 29, 0.13);
+}
+
+.requirement-card__action-confirmation.action-supersede {
+  border-color: rgba(196, 181, 253, 0.34);
+  background: rgba(76, 29, 149, 0.13);
+}
+
+.requirement-card__action-confirmation.action-baseline {
+  border-color: rgba(250, 204, 21, 0.34);
+  background: rgba(113, 63, 18, 0.13);
+}
+
+.requirement-card__action-confirmation > div:first-child,
+.requirement-card__action-confirmation > div:last-child {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.requirement-card__approval-confirmation strong {
+.requirement-card__action-confirmation strong {
   color: var(--color-heading, #f7fbff);
   font-size: 0.78rem;
 }
 
-.requirement-card__approval-confirmation span,
-.requirement-card__approval-confirmation small {
+.requirement-card__action-confirmation span,
+.requirement-card__action-confirmation small {
   color: var(--color-muted, #91a4b7);
   font-size: 0.7rem;
   font-weight: 760;
 }
 
-.requirement-card__approval-confirmation span {
+.requirement-card__action-confirmation span {
   border: 1px solid rgba(134, 239, 172, 0.28);
   border-radius: 999px;
   padding: 2px 7px;
 }
 
-.requirement-card__approval-confirmation p,
-.requirement-card__approval-confirmation blockquote {
+.requirement-card__action-confirmation p,
+.requirement-card__action-confirmation blockquote {
   margin: 0;
   color: var(--color-text, #dbe7ef);
   font-size: 0.74rem;
   line-height: 1.36;
 }
 
-.requirement-card__approval-confirmation blockquote {
+.requirement-card__action-confirmation blockquote {
   border-left: 3px solid rgba(134, 239, 172, 0.42);
   padding-left: 8px;
   color: var(--color-muted, #91a4b7);
 }
 
-.requirement-card__approval-confirmation button {
+.requirement-card__action-confirmation button {
   min-height: 31px;
   display: inline-flex;
   align-items: center;
@@ -362,7 +377,7 @@
   font-weight: 750;
 }
 
-.requirement-card__approval-confirmation button:first-child {
+.requirement-card__action-confirmation button:first-child {
   border-color: rgba(134, 239, 172, 0.5);
   color: #062013;
   background: linear-gradient(135deg, #86efac, #67e8f9);
