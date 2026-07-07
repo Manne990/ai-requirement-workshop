@@ -1,6 +1,17 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const port = 4173;
+const telemetryDir = "test-results/mission-control-telemetry-e2e";
+const e2eEnv = [
+  "VITE_SUPABASE_URL=https://example-project.supabase.co",
+  "VITE_SUPABASE_ANON_KEY=public-anon-key",
+  "VITE_ALLOW_FRONTEND_AUTH_IN_PRODUCTION=true",
+  "VITE_MISSION_CONTROL_TELEMETRY_ENDPOINT=/api/mission-control/telemetry",
+  `AI_REQUIREMENT_WORKSHOP_TELEMETRY_DIR=${telemetryDir}`,
+].join(" ");
+const webServerCommand = process.env.CI
+  ? `rm -rf ${telemetryDir} && ${e2eEnv} npm run build && ${e2eEnv} npm run preview -- --host 127.0.0.1 --port ${port}`
+  : `${e2eEnv} npm run dev -- --host 127.0.0.1 --port ${port}`;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -28,8 +39,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command:
-      "VITE_SUPABASE_URL=https://example-project.supabase.co VITE_SUPABASE_ANON_KEY=public-anon-key npm run dev -- --host 127.0.0.1 --port 4173",
+    command: webServerCommand,
     url: `http://127.0.0.1:${port}`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

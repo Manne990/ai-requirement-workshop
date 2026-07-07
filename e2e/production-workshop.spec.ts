@@ -175,8 +175,51 @@ test.describe("production workshop hardening", () => {
       ]),
     );
     expect(exportEnvelope.record?.session?.prototypes).toHaveLength(1);
+
+    await expectMissionControlTelemetry(page);
   });
 });
+
+async function expectMissionControlTelemetry(page: Page) {
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.get(
+          "/api/mission-control/telemetry",
+        );
+        const payload = (await response.json()) as {
+          records?: Array<{ event?: { name?: string } }>;
+        };
+        return (payload.records ?? []).flatMap((record) =>
+          record.event?.name ? [record.event.name] : [],
+        );
+      },
+      { timeout: 10_000 },
+    )
+    .toEqual(
+      expect.arrayContaining([
+        "auth.boundary",
+        "workshop.opened",
+        "message.sent",
+        "prototype.generated",
+      ]),
+    );
+
+  const response = await page.request.get("/api/mission-control/telemetry");
+  const payload = (await response.json()) as {
+    records?: Array<{ event?: { name?: string } }>;
+  };
+  const eventNames = new Set(
+    (payload.records ?? []).flatMap((record) =>
+      record.event?.name ? [record.event.name] : [],
+    ),
+  );
+
+  expect(
+    eventNames.has("requirement.approved") ||
+      eventNames.has("consolidation.applied"),
+  ).toBe(true);
+}
 
 async function registerWithFrontendFallback(
   page: Page,

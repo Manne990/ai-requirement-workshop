@@ -1,4 +1,5 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { defineConfig } from "vitest/config";
@@ -40,131 +41,135 @@ function codexWorkshopApi(): Plugin {
         "";
     },
     configureServer(server) {
-      server.middlewares.use(async (request, response, next) => {
-        const pathname = request.url?.split("?")[0] ?? "";
+      server.middlewares.use(workshopApiMiddleware(() => apiKey));
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(workshopApiMiddleware(() => apiKey));
+    },
+  };
+}
 
-        if (pathname === "/api/codex/status") {
+function workshopApiMiddleware(readApiKey: () => string) {
+  return async (
+    request: IncomingMessage,
+    response: ServerResponse,
+    next: () => void,
+  ) => {
+    const pathname = request.url?.split("?")[0] ?? "";
+    const apiKey = readApiKey();
+
+    if (pathname === "/api/codex/status") {
+      sendJson(response, 200, codexStatusPayload({ OPENAI_API_KEY: apiKey }));
+      return;
+    }
+
+    if (pathname === "/api/workshops/backup") {
+      if (request.method !== "POST") {
+        sendJson(response, 405, { error: "Method not allowed." });
+        return;
+      }
+
+      try {
+        const payload = await readJsonBody(request);
+        const backup = await writeWorkshopBackup(payload);
+        sendJson(response, 200, backup);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Workshop backup failed.";
+        sendJson(response, 500, { error: message });
+      }
+      return;
+    }
+
+    if (
+      pathname === "/api/workshops" ||
+      pathname.startsWith("/api/workshops/")
+    ) {
+      try {
+        const payload =
+          request.method === "PUT" || request.method === "POST"
+            ? await readJsonBody(request)
+            : undefined;
+        const result = await handleWorkshopRecordsRequest({
+          method: request.method,
+          url: request.url,
+          body: payload,
+        });
+        sendJson(response, result.statusCode, result.body);
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Workshop records request failed.";
+        sendJson(response, 400, { error: message });
+      }
+      return;
+    }
+
+    if (pathname === "/api/mission-control/telemetry") {
+      if (request.method === "GET") {
+        try {
           sendJson(
             response,
             200,
-            codexStatusPayload({ OPENAI_API_KEY: apiKey }),
+            await readMissionControlTelemetryFile(process.env),
           );
-          return;
-        }
-
-        if (pathname === "/api/workshops/backup") {
-          if (request.method !== "POST") {
-            sendJson(response, 405, { error: "Method not allowed." });
-            return;
-          }
-
-          try {
-            const payload = await readJsonBody(request);
-            const backup = await writeWorkshopBackup(payload);
-            sendJson(response, 200, backup);
-          } catch (error) {
-            const message =
-              error instanceof Error
-                ? error.message
-                : "Workshop backup failed.";
-            sendJson(response, 500, { error: message });
-          }
-          return;
-        }
-
-        if (
-          pathname === "/api/workshops" ||
-          pathname.startsWith("/api/workshops/")
-        ) {
-          try {
-            const payload =
-              request.method === "PUT" || request.method === "POST"
-                ? await readJsonBody(request)
-                : undefined;
-            const result = await handleWorkshopRecordsRequest({
-              method: request.method,
-              url: request.url,
-              body: payload,
-            });
-            sendJson(response, result.statusCode, result.body);
-          } catch (error) {
-            const message =
-              error instanceof Error
-                ? error.message
-                : "Workshop records request failed.";
-            sendJson(response, 400, { error: message });
-          }
-          return;
-        }
-
-        if (pathname === "/api/mission-control/telemetry") {
-          if (request.method === "GET") {
-            try {
-              sendJson(
-                response,
-                200,
-                await readMissionControlTelemetryFile(process.env),
-              );
-            } catch (error) {
-              const message =
-                error instanceof Error
-                  ? error.message
-                  : "Mission Control telemetry read failed.";
-              sendJson(response, 500, { error: message });
-            }
-            return;
-          }
-
-          if (request.method !== "POST") {
-            sendJson(response, 405, { error: "Method not allowed." });
-            return;
-          }
-
-          try {
-            const payload = await readJsonBody(request);
-            const result = await appendMissionControlTelemetryRecord(payload);
-            sendJson(response, 202, result);
-          } catch (error) {
-            const message =
-              error instanceof Error
-                ? error.message
-                : "Mission Control telemetry ingest failed.";
-            sendJson(response, 400, { error: message });
-          }
-          return;
-        }
-
-        if (pathname !== "/api/codex/workshop-turn") {
-          next();
-          return;
-        }
-
-        if (request.method !== "POST") {
-          sendJson(response, 405, { error: "Method not allowed." });
-          return;
-        }
-
-        if (!apiKey) {
-          sendJson(response, 409, {
-            error:
-              "Codex token missing. Set OPENAI_API_KEY in .env.local or shell environment.",
-          });
-          return;
-        }
-
-        try {
-          const payload = await readJsonBody(request);
-          const turn = await createCodexWorkshopTurn(apiKey, payload);
-          sendJson(response, 200, { turn });
         } catch (error) {
           const message =
             error instanceof Error
               ? error.message
-              : "Codex workshop turn failed.";
+              : "Mission Control telemetry read failed.";
           sendJson(response, 500, { error: message });
         }
+        return;
+      }
+
+      if (request.method !== "POST") {
+        sendJson(response, 405, { error: "Method not allowed." });
+        return;
+      }
+
+      try {
+        const payload = await readJsonBody(request);
+        const result = await appendMissionControlTelemetryRecord(payload);
+        sendJson(response, 202, result);
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Mission Control telemetry ingest failed.";
+        sendJson(response, 400, { error: message });
+      }
+      return;
+    }
+
+    if (pathname !== "/api/codex/workshop-turn") {
+      next();
+      return;
+    }
+
+    if (request.method !== "POST") {
+      sendJson(response, 405, { error: "Method not allowed." });
+      return;
+    }
+
+    if (!apiKey) {
+      sendJson(response, 409, {
+        error:
+          "Codex token missing. Set OPENAI_API_KEY in .env.local or shell environment.",
       });
-    },
+      return;
+    }
+
+    try {
+      const payload = await readJsonBody(request);
+      const turn = await createCodexWorkshopTurn(apiKey, payload);
+      sendJson(response, 200, { turn });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Codex workshop turn failed.";
+      sendJson(response, 500, { error: message });
+    }
   };
 }
 
