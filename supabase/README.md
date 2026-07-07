@@ -12,7 +12,9 @@ This directory contains the first production schema foundation for AI Requiremen
 ## Not Yet Proven
 
 - The migration has not been applied to a real Supabase project in this repository.
-- RLS policies are text-verified in CI, not database-executed yet.
+- RLS policies are text-verified in CI and migrations are applied to a
+  disposable Postgres database by `npm run test:supabase:migrations`; they have
+  not been executed against a real Supabase project yet.
 - Storage bucket policies for attachment objects still need an applied Supabase environment.
 - Realtime publication is not configured in the database migration yet.
 
@@ -48,7 +50,10 @@ Current CI runs:
 
 ```bash
 npm test -- server/supabaseSchema.test.ts
+npm run test:supabase:migrations
 npm run ci
 ```
 
-Before production launch, add an environment-backed migration test that applies this SQL to an isolated Supabase project or local Supabase database, then verifies tenant isolation with at least two users and two organizations.
+Before production launch, add an environment-backed migration test that applies
+this SQL to an isolated Supabase project, then verifies tenant isolation with at
+least two users and two organizations through the browser/client access path.

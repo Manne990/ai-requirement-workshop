@@ -28,7 +28,8 @@ The current package is `schema_version: 1` and includes:
 - `traceability`: coverage, gaps, review gaps, and warnings.
 - `requirementQuality`: deterministic quality findings and blocker/warning
   counts.
-- `prototypeSummary`: prototype/version coverage and feedback counts.
+- `prototypeSummary`: prototype/version coverage, sanitized version snapshots,
+  element definitions, current preview HTML, and prototype feedback evidence.
 - `appendix`: decisions, risks, open questions, and attachment metadata.
 - `redactions`: sensitive-text findings applied while generating the package.
 

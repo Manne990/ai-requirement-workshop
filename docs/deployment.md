@@ -133,6 +133,17 @@ Before promoting or allowing a production deploy:
 7. Record the deployment URL, commit SHA, Supabase project, migration version,
    and rollback choice.
 
+For local migration evidence before an environment-backed Supabase run:
+
+```bash
+npm run test:supabase:migrations
+```
+
+This applies the repository migrations to a disposable Postgres database with
+Supabase Auth stubs and verifies the organization/workshop helper boundaries for
+owner, participant, viewer, and outsider users. It does not replace the required
+production Supabase project evidence.
+
 ## Promotion And Rollback
 
 Prefer Vercel's protected `main` deployment path for production. If the team

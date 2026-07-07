@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
+    "test:supabase:migrations": "bash scripts/verify-supabase-migrations.sh",
     "typecheck": "tsc -b --pretty false",
     "ci": "npm run format && npm run lint && npm run typecheck && npm run test && npm run build && npm run test:e2e:install && npm run test:e2e",
     "preview": "vite preview"
