@@ -493,11 +493,24 @@ describe("App", () => {
     const downloaded = await download.readJson<{
       kind?: string;
       readiness?: string;
-      requirementRegister?: unknown[];
-      audit?: unknown;
+      requirementRegister?: Array<{
+        approval?: { approvedBy?: string };
+        history?: Array<{ actorId?: string }>;
+      }>;
+      audit?: {
+        exportEventIds?: string[];
+        summary?: {
+          byAction?: Array<{ action?: string; count?: number }>;
+        };
+      };
       traceability?: unknown;
       requirementQuality?: unknown;
-      provenance?: { input?: { approvedRequirementCount?: number } };
+      provenance?: {
+        input?: {
+          approvedRequirementCount?: number;
+          auditEventCount?: number;
+        };
+      };
     }>();
     expect(downloaded.kind).toBe(
       "AI_REQUIREMENT_WORKSHOP_PRODUCTION_REVIEW_PACKAGE",
@@ -506,10 +519,48 @@ describe("App", () => {
       downloaded.readiness,
     );
     expect(downloaded.requirementRegister).toHaveLength(1);
+    expect(downloaded.requirementRegister?.[0]?.approval?.approvedBy).toBe(
+      "auth-user:tester@example.com",
+    );
+    expect(downloaded.requirementRegister?.[0]?.history).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ actorId: "auth-user:tester@example.com" }),
+      ]),
+    );
+    expect(downloaded.audit?.exportEventIds?.[0]).toMatch(/:audit-\d+$/);
+    expect(downloaded.audit?.summary?.byAction).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: "export.generated", count: 1 }),
+      ]),
+    );
     expect(downloaded.provenance?.input?.approvedRequirementCount).toBe(1);
+    expect(
+      downloaded.provenance?.input?.auditEventCount,
+    ).toBeGreaterThanOrEqual(3);
     expect(downloaded.audit).toBeDefined();
     expect(downloaded.traceability).toBeDefined();
     expect(downloaded.requirementQuality).toBeDefined();
+    await waitFor(() => {
+      const records = JSON.parse(
+        window.localStorage.getItem(
+          "ai-requirement-workshop:v3-workshop-records",
+        ) ?? "[]",
+      ) as Array<{
+        auditEvents?: Array<{ action?: string; actorId?: string }>;
+      }>;
+      expect(records).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            auditEvents: expect.arrayContaining([
+              expect.objectContaining({
+                action: "export.generated",
+                actorId: "auth-user:tester@example.com",
+              }),
+            ]),
+          }),
+        ]),
+      );
+    });
     download.restore();
   });
 

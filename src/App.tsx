@@ -146,6 +146,7 @@ import {
   type WorkshopReport,
   type WorkshopSession,
 } from "./domain/workshop";
+import { createAuditEvent, type AuditEvent } from "./domain/audit";
 import {
   layoutArtifactPositions,
   routeArtifactEdge,
@@ -442,6 +443,7 @@ function WorkshopRoom() {
       .toString(36)
       .slice(2, 8)}`,
   );
+  const humanActorId = authSession?.user.id ?? participantIds.human;
 
   const createTelemetryOptions = useCallback(
     (
@@ -1000,19 +1002,51 @@ function WorkshopRoom() {
   ]);
 
   const handleDownloadProductionPackage = useCallback(() => {
+    const generatedAt = new Date().toISOString();
+    const organizationId =
+      organizationRuntime?.context.organization.id ?? "local-workshop";
+    const exportAuditEvent = createAuditEvent({
+      sequence: nextAuditSequence(requirementLedger.auditEvents),
+      organizationId,
+      workshopId: session.id,
+      actorId: humanActorId,
+      at: generatedAt,
+      category: "export",
+      action: "export.generated",
+      target: {
+        type: "export",
+        id: `${session.id}:production-review:${generatedAt}`,
+      },
+      summary: "Production review package generated.",
+      metadata: {
+        format: "production-review-json",
+        requirementCount: requirementLedger.requirements.length,
+        auditEventCountBeforeExport: requirementLedger.auditEvents.length,
+      },
+    });
+    const auditEvents = [...requirementLedger.auditEvents, exportAuditEvent];
+
+    setRequirementLedger((current) => ({
+      ...current,
+      auditEvents: current.auditEvents.some(
+        (event) => event.id === exportAuditEvent.id,
+      )
+        ? current.auditEvents
+        : [...current.auditEvents, exportAuditEvent],
+    }));
     downloadProductionReviewPackage(
       createProductionExportPackage({
         session,
-        organizationId:
-          organizationRuntime?.context.organization.id ?? "local-workshop",
+        organizationId,
         workshopId: session.id,
-        generatedAt: new Date().toISOString(),
+        generatedAt,
         requirements: requirementLedger.requirements,
-        auditEvents: requirementLedger.auditEvents,
+        auditEvents,
       }),
       session.title || session.id,
     );
   }, [
+    humanActorId,
     organizationRuntime,
     requirementLedger.auditEvents,
     requirementLedger.requirements,
@@ -1241,7 +1275,7 @@ function WorkshopRoom() {
               workshopId: current.id,
             },
             {
-              actorId: participantIds.facilitator,
+              actorId: humanActorId,
             },
           );
           const next = result.session;
@@ -1283,6 +1317,7 @@ function WorkshopRoom() {
     },
     [
       createTelemetryOptions,
+      humanActorId,
       organizationRuntime?.context.organization.id,
       requirementLedger,
     ],
@@ -1300,7 +1335,7 @@ function WorkshopRoom() {
             current,
             suggestionId,
             {
-              actorId: participantIds.facilitator,
+              actorId: humanActorId,
             },
           );
           if (suggestion) {
@@ -1328,7 +1363,7 @@ function WorkshopRoom() {
         }
       });
     },
-    [createTelemetryOptions],
+    [createTelemetryOptions, humanActorId],
   );
 
   const handleGeneratePrototype = useCallback(() => {
@@ -1336,7 +1371,7 @@ function WorkshopRoom() {
       const generatedAt = new Date().toISOString();
       const next = generatePrototypeFromWorkshop(current, {
         title: `${current.title} prototype`,
-        actorId: participantIds.facilitator,
+        actorId: humanActorId,
         at: generatedAt,
         sourceModel: {
           provider: "codex",
@@ -1379,18 +1414,18 @@ function WorkshopRoom() {
 
       return next;
     });
-  }, [codexStatus.model, createTelemetryOptions]);
+  }, [codexStatus.model, createTelemetryOptions, humanActorId]);
 
   const handlePrototypeFeedback = useCallback(
     (input: PrototypeFeedbackInput) => {
       setSession((current) =>
         recordPrototypeFeedback(current, input, {
-          actorId: participantIds.human,
+          actorId: humanActorId,
           at: new Date().toISOString(),
         }),
       );
     },
-    [],
+    [humanActorId],
   );
 
   const recordRequirementLedgerAction = useCallback(
@@ -1416,13 +1451,13 @@ function WorkshopRoom() {
             workshopId: next.id,
           },
           {
-            actorId: participantIds.human,
+            actorId: humanActorId,
             at,
           },
         ),
       );
     },
-    [organizationRuntime?.context.organization.id],
+    [humanActorId, organizationRuntime?.context.organization.id],
   );
 
   const handleApproveRequirement = useCallback(
@@ -1434,7 +1469,7 @@ function WorkshopRoom() {
           requirement.id,
           (sessionToUpdate) =>
             approveRequirementPanelItem(sessionToUpdate, requirement, {
-              actorId: participantIds.human,
+              actorId: humanActorId,
               at: changedAt,
             }),
           (next, nextRequirement, previousStatus) => {
@@ -1456,7 +1491,7 @@ function WorkshopRoom() {
         ),
       );
     },
-    [createTelemetryOptions, recordRequirementLedgerAction],
+    [createTelemetryOptions, humanActorId, recordRequirementLedgerAction],
   );
 
   const handleRejectRequirement = useCallback(
@@ -1468,7 +1503,7 @@ function WorkshopRoom() {
           requirement.id,
           (sessionToUpdate) =>
             rejectRequirementPanelItem(sessionToUpdate, requirement, {
-              actorId: participantIds.human,
+              actorId: humanActorId,
               at: changedAt,
             }),
           (next, nextRequirement, previousStatus) => {
@@ -1490,7 +1525,7 @@ function WorkshopRoom() {
         ),
       );
     },
-    [createTelemetryOptions, recordRequirementLedgerAction],
+    [createTelemetryOptions, humanActorId, recordRequirementLedgerAction],
   );
 
   const handleSupersedeRequirement = useCallback(
@@ -1502,7 +1537,7 @@ function WorkshopRoom() {
           requirement.id,
           (sessionToUpdate) =>
             supersedeRequirementPanelItem(sessionToUpdate, requirement, {
-              actorId: participantIds.human,
+              actorId: humanActorId,
               at: changedAt,
               rationale: "Marked as superseded from the requirements panel.",
             }),
@@ -1525,7 +1560,7 @@ function WorkshopRoom() {
         ),
       );
     },
-    [createTelemetryOptions, recordRequirementLedgerAction],
+    [createTelemetryOptions, humanActorId, recordRequirementLedgerAction],
   );
 
   const handleBaselineRequirement = useCallback(
@@ -1537,7 +1572,7 @@ function WorkshopRoom() {
           requirement.id,
           (sessionToUpdate) =>
             baselineRequirementPanelItem(sessionToUpdate, requirement, {
-              actorId: participantIds.human,
+              actorId: humanActorId,
               at: changedAt,
             }),
           (next, nextRequirement, previousStatus) => {
@@ -1559,7 +1594,7 @@ function WorkshopRoom() {
         ),
       );
     },
-    [createTelemetryOptions, recordRequirementLedgerAction],
+    [createTelemetryOptions, humanActorId, recordRequirementLedgerAction],
   );
 
   const artifactPositions = useMemo(
@@ -2898,6 +2933,15 @@ function downloadProductionReviewPackage(
   anchor.download = `${safeDownloadName(workshopTitle)}.production-review.json`;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+function nextAuditSequence(auditEvents: AuditEvent[]) {
+  const maxSequence = auditEvents.reduce((max, event) => {
+    const sequence = Number(event.id.match(/:audit-(\d+)$/)?.[1]);
+    return Number.isFinite(sequence) ? Math.max(max, sequence) : max;
+  }, 0);
+
+  return maxSequence + 1;
 }
 
 function toBackupStatus(
