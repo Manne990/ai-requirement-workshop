@@ -12,6 +12,18 @@ AI Requirement Workshop has two user-controlled export paths:
 The review package is downloaded from the report dialog with
 `Download review package`.
 
+When a workshop is saved through the server-backed record API, the same package
+can also be generated from stored server state:
+
+```text
+GET /api/workshops/{workshopId}/production-review
+```
+
+The response includes `recordId`, `revision`, and `package`. In local dev and
+preview this uses the same fail-closed `/api/workshops` record boundary. In
+production, the endpoint must be backed by authenticated organization access
+before it is used as release evidence.
+
 ## Review Package Contract
 
 The current package is `schema_version: 1` and includes:
@@ -42,6 +54,7 @@ When this format changes, run:
 
 ```bash
 npm run test -- src/domain/productionExport.test.ts src/App.test.tsx
+npm run test -- server/workshopRecordsApi.test.ts
 npm run test:e2e -- e2e/production-workshop.spec.ts
 npm run ci
 ```

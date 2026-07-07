@@ -52,6 +52,12 @@ export type ServerWorkshopSummary = {
   attachmentCount: number;
 };
 
+export type ServerProductionReviewPackageResponse = {
+  recordId: string;
+  revision: string;
+  package: unknown;
+};
+
 export async function handleWorkshopRecordsRequest(
   request: WorkshopRecordsApiRequest,
   env: WorkshopRecordsApiEnv = process.env,
@@ -67,9 +73,26 @@ export async function handleWorkshopRecordsRequest(
   }
 
   const method = request.method ?? "GET";
+  const productionReviewRecordId = readProductionReviewRecordId(request.url);
   const recordId = readRecordId(request.url);
 
   try {
+    if (productionReviewRecordId) {
+      if (method !== "GET") {
+        return methodNotAllowed();
+      }
+
+      const record = await readWorkshopRecord(productionReviewRecordId, env);
+      if (!record) {
+        return { statusCode: 404, body: { error: "Workshop not found." } };
+      }
+
+      return {
+        statusCode: 200,
+        body: await createServerProductionReviewPackage(record),
+      };
+    }
+
     if (!recordId && method === "GET") {
       const records = await readAllWorkshopRecords(env);
       return {
@@ -154,6 +177,47 @@ export async function handleWorkshopRecordsRequest(
       },
     };
   }
+}
+
+export async function createServerProductionReviewPackage(
+  record: ServerWorkshopRecord,
+  generatedAt = new Date().toISOString(),
+): Promise<ServerProductionReviewPackageResponse> {
+  const createProductionExportPackage =
+    await loadProductionExportPackageFactory();
+
+  return {
+    recordId: record.id,
+    revision: record.revision,
+    package: createProductionExportPackage({
+      session: record.session,
+      requirements: record.requirements ?? [],
+      auditEvents: record.auditEvents ?? [],
+      organizationId: record.organizationId,
+      workshopId: record.id,
+      generatedAt,
+    }),
+  };
+}
+
+async function loadProductionExportPackageFactory() {
+  const modulePath = "../src/domain/productionExport.js";
+  const module = (await import(modulePath)) as {
+    createProductionExportPackage?: unknown;
+  };
+
+  if (typeof module.createProductionExportPackage !== "function") {
+    throw new Error("Production export package generator is unavailable.");
+  }
+
+  return module.createProductionExportPackage as (input: {
+    session: ServerWorkshopRecord["session"];
+    requirements: unknown[];
+    auditEvents: unknown[];
+    organizationId: string;
+    workshopId: string;
+    generatedAt: string;
+  }) => unknown;
 }
 
 export function workshopRecordsDir(env: WorkshopRecordsApiEnv = process.env) {
@@ -349,6 +413,12 @@ function createRecordRevision(
 function readRecordId(url: string | undefined) {
   const pathname = url?.split("?")[0] ?? "";
   const match = /^\/api\/workshops\/([^/]+)$/.exec(pathname);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function readProductionReviewRecordId(url: string | undefined) {
+  const pathname = url?.split("?")[0] ?? "";
+  const match = /^\/api\/workshops\/([^/]+)\/production-review$/.exec(pathname);
   return match ? decodeURIComponent(match[1]) : null;
 }
 

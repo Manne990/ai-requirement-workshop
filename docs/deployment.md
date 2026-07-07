@@ -37,6 +37,10 @@ The BFF routes live under `api/codex/`, `api/workshops/`, and
 implemented by the Vite dev server and is not a production persistence path.
 The `/api/workshops` record boundary is a server API contract; production use
 must back it with verified organization auth and durable storage.
+Server-backed records can generate review evidence through
+`GET /api/workshops/{workshopId}/production-review`; this endpoint must use the
+same authenticated organization boundary as the underlying workshop record
+before it is accepted as production release evidence.
 
 ## Environment Contract
 

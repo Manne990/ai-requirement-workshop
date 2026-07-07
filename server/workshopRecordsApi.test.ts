@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  createServerProductionReviewPackage,
   handleWorkshopRecordsRequest,
   workshopRecordsDir,
   type ServerWorkshopRecord,
@@ -213,6 +214,75 @@ describe("workshopRecordsApi", () => {
     });
   });
 
+  it("generates a production review package from saved server state", async () => {
+    const artifact = requirementArtifact("artifact-requirement-1");
+    const record = {
+      ...createServerRecord("server-workshop-review"),
+      session: {
+        ...createServerRecord("server-workshop-review").session,
+        artifacts: [artifact],
+      },
+      requirements: [approvedRequirement()],
+      auditEvents: requirementAuditEvents(),
+    };
+
+    const saved = await handleWorkshopRecordsRequest(
+      {
+        method: "PUT",
+        url: "/api/workshops/server-workshop-review",
+        body: { record },
+      },
+      env,
+    );
+    expect(saved.statusCode).toBe(201);
+
+    await expect(
+      handleWorkshopRecordsRequest(
+        {
+          method: "GET",
+          url: "/api/workshops/server-workshop-review/production-review",
+        },
+        env,
+      ),
+    ).resolves.toMatchObject({
+      statusCode: 200,
+      body: {
+        recordId: "server-workshop-review",
+        revision: expect.any(String),
+        package: {
+          kind: "AI_REQUIREMENT_WORKSHOP_PRODUCTION_REVIEW_PACKAGE",
+          organizationId: "organization-001",
+          workshopId: "server-workshop-review",
+          provenance: {
+            source: "saved-workshop-state",
+            input: {
+              requirementCount: 1,
+              auditEventCount: 2,
+            },
+          },
+          requirementRegister: [
+            expect.objectContaining({
+              id: "requirement-artifact-requirement-1",
+              state: "approved",
+              auditEventIds: [
+                "server-workshop-review:audit-0001",
+                "server-workshop-review:audit-0002",
+              ],
+            }),
+          ],
+        },
+      },
+    });
+
+    await expect(
+      createServerProductionReviewPackage(record, "2026-07-06T21:35:00.000Z"),
+    ).resolves.toMatchObject({
+      package: {
+        generatedAt: "2026-07-06T21:35:00.000Z",
+      },
+    });
+  });
+
   it("fails closed in production", async () => {
     await expect(
       handleWorkshopRecordsRequest(
@@ -283,4 +353,115 @@ function createServerRecord(id: string): ServerWorkshopRecord {
     },
     seenInsightIdsByParticipant: {},
   };
+}
+
+function requirementArtifact(id: string) {
+  return {
+    id,
+    type: "requirement",
+    title: "Alarm status",
+    content: "The dashboard must show alarm status before review.",
+    status: "accepted",
+    createdBy: "facilitator",
+    updatedAt: "2026-07-06T21:33:00.000Z",
+    source: {
+      messageId: "message-1",
+      participantId: "owner-user",
+    },
+    tags: ["approved"],
+  };
+}
+
+function approvedRequirement() {
+  return {
+    id: "requirement-artifact-requirement-1",
+    title: "Alarm status",
+    statement: "The dashboard must show alarm status before review.",
+    state: "approved",
+    version: 2,
+    acceptanceCriteria: [
+      {
+        id: "requirement-artifact-requirement-1:ac-1",
+        text: "Given a dashboard opens, then the alarm status is visible.",
+      },
+    ],
+    rationale: "Derived from a workshop requirement artifact.",
+    sourceRefs: [
+      {
+        artifactId: "artifact-requirement-1",
+        messageId: "message-1",
+        participantId: "owner-user",
+      },
+    ],
+    createdAt: "2026-07-06T21:33:00.000Z",
+    createdBy: "owner-user",
+    updatedAt: "2026-07-06T21:34:00.000Z",
+    approvedAt: "2026-07-06T21:34:00.000Z",
+    approvedBy: "owner-user",
+    history: requirementHistory(),
+  };
+}
+
+function requirementHistory() {
+  return [
+    {
+      id: "requirement-artifact-requirement-1:history-1",
+      action: "created",
+      at: "2026-07-06T21:33:00.000Z",
+      actorId: "owner-user",
+      toState: "candidate",
+      rationale: "Derived from a workshop requirement artifact.",
+      version: 1,
+      changes: [],
+    },
+    {
+      id: "requirement-artifact-requirement-1:history-2",
+      action: "approved",
+      at: "2026-07-06T21:34:00.000Z",
+      actorId: "owner-user",
+      fromState: "candidate",
+      toState: "approved",
+      rationale: "Approved for production review.",
+      version: 2,
+      changes: [],
+    },
+  ];
+}
+
+function requirementAuditEvents() {
+  return requirementHistory().map((entry, index) => ({
+    id: `server-workshop-review:audit-${String(index + 1).padStart(4, "0")}`,
+    version: 1,
+    organizationId: "organization-001",
+    workshopId: "server-workshop-review",
+    actorId: entry.actorId,
+    at: entry.at,
+    category: "requirement",
+    action: `requirement.${entry.action}`,
+    target: {
+      type: "requirement",
+      id: "requirement-artifact-requirement-1",
+    },
+    summary: `Requirement requirement-artifact-requirement-1 ${entry.action}.`,
+    metadata: {
+      requirementId: "requirement-artifact-requirement-1",
+      historyEntryId: entry.id,
+      historyIndex: index,
+      title: "Alarm status",
+      fromState: entry.fromState,
+      toState: entry.toState,
+      version: entry.version,
+      previousVersion: entry.version > 1 ? entry.version - 1 : undefined,
+      rationale: entry.rationale,
+      changes: entry.changes,
+      changeFields: [],
+      sourceRefs: [
+        {
+          artifactId: "artifact-requirement-1",
+          messageId: "message-1",
+          participantId: "owner-user",
+        },
+      ],
+    },
+  }));
 }
