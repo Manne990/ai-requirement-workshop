@@ -29,6 +29,40 @@ describe("attachment extraction", () => {
     expect(draft?.tags).toContain("mime:application/pdf");
   });
 
+  it("extracts PDF text when ReadableStream async iteration is unavailable", async () => {
+    const readableStreamPrototype = ReadableStream.prototype as ReadableStream &
+      Record<PropertyKey, unknown>;
+    const originalAsyncIterator = readableStreamPrototype[Symbol.asyncIterator];
+    const originalValues = readableStreamPrototype.values;
+
+    Object.defineProperty(readableStreamPrototype, Symbol.asyncIterator, {
+      configurable: true,
+      value: undefined,
+    });
+    Object.defineProperty(readableStreamPrototype, "values", {
+      configurable: true,
+      value: undefined,
+    });
+
+    try {
+      const [draft] = await extractAttachmentDrafts([
+        createPdfFile("PDF stream reader fallback"),
+      ]);
+
+      expect(draft?.status).toBe("extracted");
+      expect(draft?.summary).toContain("PDF stream reader fallback");
+    } finally {
+      Object.defineProperty(readableStreamPrototype, Symbol.asyncIterator, {
+        configurable: true,
+        value: originalAsyncIterator,
+      });
+      Object.defineProperty(readableStreamPrototype, "values", {
+        configurable: true,
+        value: originalValues,
+      });
+    }
+  });
+
   it("extracts readable worksheet context from Mathcad MCDX attachments", async () => {
     const [draft] = await extractAttachmentDrafts([createMcdxFile()]);
 

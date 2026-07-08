@@ -16,6 +16,7 @@ const textExtensions = new Set(["txt", "md", "csv", "json", "log"]);
 const mcdxXmlEntryPattern =
   /^(?:mathcad\/(?:worksheet|result|header|footer)\.xml|docProps\/(?:core|app)\.xml)$/i;
 const mcdxXamlPackagePattern = /^mathcad\/xaml\/.*\.XamlPackage$/i;
+type PdfTextContentItem = { str?: string };
 
 export async function extractAttachmentDrafts(
   files: File[],
@@ -125,9 +126,9 @@ async function extractPdfText(file: File) {
 
   for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
     const page = await document.getPage(pageNumber);
-    const content = await page.getTextContent();
-    const text = content.items
-      .map((item) => ("str" in item ? item.str : ""))
+    const contentItems = await readPdfTextContentItems(page);
+    const text = contentItems
+      .map((item) => item.str ?? "")
       .join(" ")
       .replace(/\s+/g, " ")
       .trim();
@@ -138,6 +139,29 @@ async function extractPdfText(file: File) {
   }
 
   return pages.join("\n\n").trim();
+}
+
+async function readPdfTextContentItems(page: {
+  streamTextContent: () => ReadableStream<{ items: PdfTextContentItem[] }>;
+}) {
+  const reader = page.streamTextContent().getReader();
+  const items: PdfTextContentItem[] = [];
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      items.push(...value.items);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return items;
 }
 
 async function resolvePdfWorkerUrl() {
