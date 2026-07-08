@@ -36,12 +36,14 @@ test.describe("production workshop hardening", () => {
       page.getByRole("region", { name: /workshop room/i }),
     ).toBeVisible();
     await expect(page.getByRole("log")).toHaveAttribute("aria-live", "polite");
+    const prototypeTools = await openToolsPanel(page, "Prototype");
     await expect(
-      page.getByRole("region", { name: /prototype preview/i }),
+      prototypeTools.getByRole("region", { name: /prototype preview/i }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /generate prototype/i }),
+      prototypeTools.getByRole("button", { name: /generate prototype/i }),
     ).toBeDisabled();
+    await closeToolsDrawer(page);
 
     const message =
       "A production dispatcher needs stale incident data highlighted before dispatch decisions are confirmed.";
@@ -58,6 +60,7 @@ test.describe("production workshop hardening", () => {
       page.locator(".canvas-panel").getByText("1 accepted"),
     ).toBeVisible();
 
+    await openToolsPanel(page, "Prototype");
     await page.getByRole("button", { name: /generate prototype/i }).click();
     await expect(
       page
@@ -68,6 +71,7 @@ test.describe("production workshop hardening", () => {
       page.getByRole("region", { name: /prototype preview/i }),
     ).toContainText(/\d+\/\d+ covered/);
 
+    await closeToolsDrawer(page);
     await page.getByRole("button", { name: /^report$/i }).click();
     const report = page.getByRole("dialog", { name: /workshop report/i });
     await expect(report).toBeVisible();
@@ -246,33 +250,51 @@ async function registerWithFrontendFallback(
     .click();
 }
 
-async function approveVisibleRequirementPath(page: Page) {
-  const consolidationPanel = page.getByRole("heading", {
-    name: /requirement suggestions/i,
-  });
-  const hasConsolidationPanel = await consolidationPanel.isVisible();
-  if (hasConsolidationPanel) {
-    const candidateSuggestion = page
-      .locator(".consolidation-card")
-      .filter({ hasText: "Requirement candidate duplicate" })
-      .first();
-    const applyButton = candidateSuggestion
-      .getByRole("button", { name: /^apply$/i })
-      .first();
-    if (
-      (await candidateSuggestion.count()) > 0 &&
-      (await applyButton.count()) > 0 &&
-      (await applyButton.isEnabled())
-    ) {
-      await applyButton.click();
-      await expect(
-        page.locator(".canvas-panel").getByText("1 accepted"),
-      ).toBeVisible();
-      return;
-    }
+async function openToolsPanel(page: Page, panelName: string) {
+  const toolsButton = page.getByRole("button", { name: /^tools$/i });
+  if ((await toolsButton.getAttribute("aria-expanded")) !== "true") {
+    await toolsButton.click();
   }
 
-  const requirementsPanel = page.getByRole("region", {
+  const drawer = page.getByRole("complementary", { name: /workshop tools/i });
+  await expect(drawer).toBeVisible();
+  await drawer.getByRole("tab", { name: panelName }).click();
+  return drawer;
+}
+
+async function closeToolsDrawer(page: Page) {
+  const drawer = page.getByRole("complementary", { name: /workshop tools/i });
+  if ((await drawer.count()) === 0) {
+    return;
+  }
+
+  await drawer.getByRole("button", { name: /close workshop tools/i }).click();
+  await expect(drawer).toHaveCount(0);
+}
+
+async function approveVisibleRequirementPath(page: Page) {
+  const consolidationTools = await openToolsPanel(page, "Consolidation");
+  const candidateSuggestion = consolidationTools
+    .locator(".consolidation-card")
+    .filter({ hasText: "Requirement candidate duplicate" })
+    .first();
+  const applyButton = candidateSuggestion
+    .getByRole("button", { name: /^apply$/i })
+    .first();
+  if (
+    (await candidateSuggestion.count()) > 0 &&
+    (await applyButton.count()) > 0 &&
+    (await applyButton.isEnabled())
+  ) {
+    await applyButton.click();
+    await expect(
+      page.locator(".canvas-panel").getByText("1 accepted"),
+    ).toBeVisible();
+    return;
+  }
+
+  const requirementsTools = await openToolsPanel(page, "Requirements");
+  const requirementsPanel = requirementsTools.getByRole("region", {
     name: /requirements management/i,
   });
   if (await requirementsPanel.isVisible()) {

@@ -70,7 +70,6 @@ import {
   applyCodexWorkshopTurn,
   removePendingCodexHumanMessage,
 } from "./domain/codexWorkshop";
-import { aiProcessingDisclosure } from "./domain/security";
 import {
   applyCollaborationEvent,
   createCollaborationEvent,
@@ -245,6 +244,29 @@ const visualizationLabels: Record<VisualizationMode, string> = {
   risks: "Risks",
 };
 
+type WorkshopToolPanel =
+  | "organization"
+  | "prototype"
+  | "requirements"
+  | "traceability"
+  | "consolidation";
+
+const toolPanelLabels: Record<WorkshopToolPanel, string> = {
+  organization: "Organization",
+  prototype: "Prototype",
+  requirements: "Requirements",
+  traceability: "Traceability",
+  consolidation: "Consolidation",
+};
+
+const toolPanelOrder: WorkshopToolPanel[] = [
+  "prototype",
+  "requirements",
+  "consolidation",
+  "traceability",
+  "organization",
+];
+
 function App() {
   return (
     <AuthProvider>
@@ -416,6 +438,9 @@ function WorkshopRoom() {
     WorkshopPresenceSession[]
   >([]);
   const [isReportOpen, setIsReportOpen] = useState(false);
+  const [isToolsOpen, setIsToolsOpen] = useState(false);
+  const [activeToolPanel, setActiveToolPanel] =
+    useState<WorkshopToolPanel>("prototype");
   const [selectedInsightParticipantId, setSelectedInsightParticipantId] =
     useState<string | null>(null);
   const [seenInsightIdsByParticipant, setSeenInsightIdsByParticipant] =
@@ -1757,6 +1782,16 @@ function WorkshopRoom() {
           <button
             className="ghost-button"
             type="button"
+            aria-controls="workshop-tools-drawer"
+            aria-expanded={isToolsOpen}
+            onClick={() => setIsToolsOpen((current) => !current)}
+          >
+            <ClipboardList aria-hidden="true" size={18} />
+            Tools
+          </button>
+          <button
+            className="ghost-button"
+            type="button"
             onClick={handleExportWorkshop}
           >
             <Download aria-hidden="true" size={18} />
@@ -1858,51 +1893,6 @@ function WorkshopRoom() {
           </div>
         </section>
 
-        <section className="operations-pane" aria-label="Workshop operations">
-          <OrganizationPanel
-            membershipContext={organizationRuntime?.context ?? null}
-            memberCount={organizationRuntime?.memberCount ?? 0}
-            invites={organizationRuntime?.state.invites ?? []}
-            accessChecks={organizationRuntime?.accessChecks ?? []}
-          />
-          {organizationError ? (
-            <p className="composer-error">{organizationError}</p>
-          ) : null}
-          <PrototypePanel
-            session={session}
-            modelName={codexStatus.model}
-            onGeneratePrototype={handleGeneratePrototype}
-            onRecordFeedback={handlePrototypeFeedback}
-          />
-          <RequirementsPanel
-            requirements={requirementPanelItems}
-            qualityFindings={requirementQualityFindings}
-            selectedRequirementId={selectedArtifact?.id}
-            onSelectRequirement={(requirement) =>
-              handleSelectArtifact(requirement.id)
-            }
-            onApprove={handleApproveRequirement}
-            onReject={handleRejectRequirement}
-            onSupersede={handleSupersedeRequirement}
-            onBaseline={handleBaselineRequirement}
-          />
-          <TraceabilityPanel
-            session={session}
-            selectedNodeId={
-              selectedArtifact
-                ? `requirement:${selectedArtifact.id}`
-                : undefined
-            }
-            onSelectArtifact={handleSelectArtifact}
-          />
-          <ConsolidationPanel
-            suggestions={consolidationSuggestions}
-            artifacts={consolidationArtifacts}
-            onApplySuggestion={handleApplyConsolidation}
-            onParkSuggestion={handleParkConsolidation}
-          />
-        </section>
-
         <aside className="chat-pane" aria-label="Workshop chat">
           <div className="chat-header">
             <div>
@@ -1954,7 +1944,7 @@ function WorkshopRoom() {
           </div>
 
           <form className="chat-composer" onSubmit={handleSubmit}>
-            <label htmlFor="workshop-input">
+            <label className="sr-only" htmlFor="workshop-input">
               Describe, challenge, or refine the requirement discussion
             </label>
             <input
@@ -1970,33 +1960,12 @@ function WorkshopRoom() {
             />
             <textarea
               id="workshop-input"
-              rows={4}
+              rows={3}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder="Example: SOS operators need a way to compare incoming incident data against earlier calls without slowing dispatch..."
               disabled={isCodexThinking}
             />
-            <div className="ai-disclosure" role="note">
-              <ShieldAlert aria-hidden="true" size={16} />
-              <span>{aiProcessingDisclosure}</span>
-            </div>
-            <div className="attachment-toolbar">
-              <button
-                className="ghost-button"
-                type="button"
-                onClick={handleAttachmentPickerClick}
-                disabled={isCodexThinking || isExtractingAttachments}
-              >
-                <Paperclip aria-hidden="true" size={16} />
-                {isExtractingAttachments ? "Reading files" : "Attach files"}
-              </button>
-              {pendingAttachments.length > 0 ? (
-                <span>
-                  {pendingAttachments.length} pending attachment
-                  {pendingAttachments.length === 1 ? "" : "s"}
-                </span>
-              ) : null}
-            </div>
             {pendingAttachments.length > 0 ? (
               <div className="pending-attachments" aria-label="Pending files">
                 {pendingAttachments.map((attachment, index) => (
@@ -2028,21 +1997,134 @@ function WorkshopRoom() {
               <p className="composer-error">{attachmentError}</p>
             ) : null}
             {codexError ? <p className="composer-error">{codexError}</p> : null}
-            <button
-              className="primary-button"
-              type="submit"
-              disabled={
-                (!draft.trim() && pendingAttachments.length === 0) ||
-                isCodexThinking ||
-                isExtractingAttachments
-              }
-            >
-              <Send aria-hidden="true" size={18} />
-              {isCodexThinking ? "Codex thinking" : "Send"}
-            </button>
+            <div className="composer-actions">
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={handleAttachmentPickerClick}
+                disabled={isCodexThinking || isExtractingAttachments}
+              >
+                <Paperclip aria-hidden="true" size={16} />
+                {isExtractingAttachments ? "Reading files" : "Attach files"}
+              </button>
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={
+                  (!draft.trim() && pendingAttachments.length === 0) ||
+                  isCodexThinking ||
+                  isExtractingAttachments
+                }
+              >
+                <Send aria-hidden="true" size={18} />
+                {isCodexThinking ? "Codex thinking" : "Send"}
+              </button>
+            </div>
           </form>
         </aside>
       </section>
+
+      {isToolsOpen ? (
+        <aside
+          className="workshop-tools-drawer"
+          id="workshop-tools-drawer"
+          aria-label="Workshop tools"
+        >
+          <header className="workshop-tools-header">
+            <div>
+              <p className="eyebrow">Workshop tools</p>
+              <h2>{toolPanelLabels[activeToolPanel]}</h2>
+            </div>
+            <button
+              className="icon-button"
+              type="button"
+              aria-label="Close workshop tools"
+              onClick={() => setIsToolsOpen(false)}
+            >
+              <X aria-hidden="true" size={18} />
+            </button>
+          </header>
+
+          <div
+            className="workshop-tools-tabs"
+            role="tablist"
+            aria-label="Workshop tool panels"
+          >
+            {toolPanelOrder.map((panel) => (
+              <button
+                type="button"
+                role="tab"
+                key={panel}
+                aria-selected={activeToolPanel === panel}
+                onClick={() => setActiveToolPanel(panel)}
+              >
+                {toolPanelLabels[panel]}
+              </button>
+            ))}
+          </div>
+
+          <div className="workshop-tools-body" role="tabpanel">
+            {activeToolPanel === "organization" ? (
+              <>
+                <OrganizationPanel
+                  membershipContext={organizationRuntime?.context ?? null}
+                  memberCount={organizationRuntime?.memberCount ?? 0}
+                  invites={organizationRuntime?.state.invites ?? []}
+                  accessChecks={organizationRuntime?.accessChecks ?? []}
+                />
+                {organizationError ? (
+                  <p className="composer-error">{organizationError}</p>
+                ) : null}
+              </>
+            ) : null}
+
+            {activeToolPanel === "prototype" ? (
+              <PrototypePanel
+                session={session}
+                modelName={codexStatus.model}
+                onGeneratePrototype={handleGeneratePrototype}
+                onRecordFeedback={handlePrototypeFeedback}
+              />
+            ) : null}
+
+            {activeToolPanel === "requirements" ? (
+              <RequirementsPanel
+                requirements={requirementPanelItems}
+                qualityFindings={requirementQualityFindings}
+                selectedRequirementId={selectedArtifact?.id}
+                onSelectRequirement={(requirement) =>
+                  handleSelectArtifact(requirement.id)
+                }
+                onApprove={handleApproveRequirement}
+                onReject={handleRejectRequirement}
+                onSupersede={handleSupersedeRequirement}
+                onBaseline={handleBaselineRequirement}
+              />
+            ) : null}
+
+            {activeToolPanel === "traceability" ? (
+              <TraceabilityPanel
+                session={session}
+                selectedNodeId={
+                  selectedArtifact
+                    ? `requirement:${selectedArtifact.id}`
+                    : undefined
+                }
+                onSelectArtifact={handleSelectArtifact}
+              />
+            ) : null}
+
+            {activeToolPanel === "consolidation" ? (
+              <ConsolidationPanel
+                suggestions={consolidationSuggestions}
+                artifacts={consolidationArtifacts}
+                onApplySuggestion={handleApplyConsolidation}
+                onParkSuggestion={handleParkConsolidation}
+              />
+            ) : null}
+          </div>
+        </aside>
+      ) : null}
 
       <section
         className="detail-rail"

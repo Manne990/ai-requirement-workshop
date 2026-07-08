@@ -105,7 +105,10 @@ test.describe("workshop feedback loop", () => {
       "participant strip owns horizontal overflow",
     ).toBe(true);
 
-    await page.getByRole("button", { name: /generate prototype/i }).click();
+    const prototypeTools = await openToolsPanel(page, "Prototype");
+    await prototypeTools
+      .getByRole("button", { name: /generate prototype/i })
+      .click();
     await expect(
       page
         .frameLocator("iframe[title='Generated prototype preview']")
@@ -140,48 +143,53 @@ test.describe("workshop feedback loop", () => {
     await expect(
       page.getByRole("region", { name: /workshop room/i }),
     ).toBeVisible();
-    await expect(
-      page.getByRole("region", { name: /workshop operations/i }),
-    ).toBeVisible();
     await expect(page.getByLabel(/workshop chat/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: /^tools$/i })).toBeVisible();
+    await openToolsPanel(page, "Prototype");
     await expect(
       page.getByRole("region", { name: /prototype preview/i }),
     ).toBeVisible();
+    await openToolsPanel(page, "Requirements");
     await expect(
       page.getByRole("region", { name: /requirements management/i }),
     ).toBeVisible();
+    await closeToolsDrawer(page);
     await expect(page.getByRole("log")).toHaveAttribute("aria-live", "polite");
 
     await page
       .getByLabel(/describe, challenge, or refine/i)
       .fill(
-        "A tablet reviewer needs the workshop operations lane to stay reachable without creating page scroll.",
+        "A tablet reviewer needs workshop tools to stay reachable without creating page scroll.",
       );
     await page.getByRole("button", { name: /^send$/i }).click();
     await expect(
       page.getByText(/what measurable behavior proves/i),
     ).toBeVisible();
 
+    await openToolsPanel(page, "Requirements");
     const layoutBeforePrototype = await readLayout(page);
     expect(layoutBeforePrototype.canvasVisible).toBe(true);
     expect(layoutBeforePrototype.canvasHeight).toBeGreaterThanOrEqual(180);
     expect(layoutBeforePrototype.detailRailVisible).toBe(true);
-    expect(layoutBeforePrototype.operationsScrollsVertically).toBe(true);
+    expect(layoutBeforePrototype.toolsDrawerVisible).toBe(true);
+    expect(layoutBeforePrototype.toolsBodyOwnsVerticalOverflow).toBe(true);
     expect(layoutBeforePrototype.chatScrollsVertically).toBe(true);
     expect(layoutBeforePrototype.participantsCanScrollHorizontally).toBe(true);
 
-    await page
+    const requirementsTools = await openToolsPanel(page, "Requirements");
+    await requirementsTools
       .getByRole("button", {
         name: "Approve Requirement candidate",
         exact: true,
       })
       .click();
-    await page
+    await requirementsTools
       .getByRole("button", {
         name: "Confirm approve Requirement candidate",
         exact: true,
       })
       .click();
+    await openToolsPanel(page, "Prototype");
     await page.getByRole("button", { name: /generate prototype/i }).click();
     await expect(
       page
@@ -193,7 +201,8 @@ test.describe("workshop feedback loop", () => {
     ).toBeVisible();
 
     const layoutAfterPrototype = await readLayout(page);
-    expect(layoutAfterPrototype.prototypeScrollsVertically).toBe(true);
+    expect(layoutAfterPrototype.toolsDrawerVisible).toBe(true);
+    expect(layoutAfterPrototype.toolsBodyOwnsVerticalOverflow).toBe(true);
     await assertNoPageScroll(page);
   });
 });
@@ -220,6 +229,28 @@ async function registerWithFrontendFallback(
     .getByRole("button", { name: /^register$/i })
     .last()
     .click();
+}
+
+async function openToolsPanel(page: Page, panelName: string) {
+  const toolsButton = page.getByRole("button", { name: /^tools$/i });
+  if ((await toolsButton.getAttribute("aria-expanded")) !== "true") {
+    await toolsButton.click();
+  }
+
+  const drawer = page.getByRole("complementary", { name: /workshop tools/i });
+  await expect(drawer).toBeVisible();
+  await drawer.getByRole("tab", { name: panelName }).click();
+  return drawer;
+}
+
+async function closeToolsDrawer(page: Page) {
+  const drawer = page.getByRole("complementary", { name: /workshop tools/i });
+  if ((await drawer.count()) === 0) {
+    return;
+  }
+
+  await drawer.getByRole("button", { name: /close workshop tools/i }).click();
+  await expect(drawer).toHaveCount(0);
 }
 
 async function installCodexFakes(
@@ -298,6 +329,8 @@ async function readLayout(page: Page) {
     const canvas = document.querySelector(".canvas-pane");
     const detailRail = document.querySelector(".detail-rail");
     const participants = document.querySelector(".participants-strip");
+    const toolsDrawer = document.querySelector(".workshop-tools-drawer");
+    const toolsBody = document.querySelector(".workshop-tools-body");
 
     if (!canvas || !detailRail || !participants) {
       throw new Error("Expected workshop layout regions were not rendered.");
@@ -309,6 +342,7 @@ async function readLayout(page: Page) {
     };
     const canvasRect = canvas.getBoundingClientRect();
     const detailRailRect = detailRail.getBoundingClientRect();
+    const toolsRect = toolsDrawer?.getBoundingClientRect();
     const participantsStyle = window.getComputedStyle(participants);
 
     return {
@@ -326,21 +360,20 @@ async function readLayout(page: Page) {
         participantsStyle.overflowX === "auto" &&
         participants.scrollWidth > participants.clientWidth,
       canvasHeight: canvasRect.height,
-      operationsScrollsVertically:
-        window.getComputedStyle(document.querySelector(".operations-pane")!)
-          .overflowY === "auto" &&
-        document.querySelector(".operations-pane")!.scrollHeight >
-          document.querySelector(".operations-pane")!.clientHeight,
+      toolsDrawerVisible:
+        Boolean(toolsRect) &&
+        toolsRect!.left >= 0 &&
+        toolsRect!.top >= 0 &&
+        toolsRect!.right <= viewport.width &&
+        toolsRect!.bottom <= viewport.height,
+      toolsBodyOwnsVerticalOverflow:
+        Boolean(toolsBody) &&
+        window.getComputedStyle(toolsBody!).overflowY === "auto",
       chatScrollsVertically:
         window.getComputedStyle(document.querySelector(".message-list")!)
           .overflowY === "auto" &&
         document.querySelector(".message-list")!.scrollHeight >
           document.querySelector(".message-list")!.clientHeight,
-      prototypeScrollsVertically:
-        window.getComputedStyle(document.querySelector(".prototype-pane")!)
-          .overflowY === "auto" &&
-        document.querySelector(".prototype-pane")!.scrollHeight >
-          document.querySelector(".prototype-pane")!.clientHeight,
     };
   });
 }

@@ -11,7 +11,6 @@ import {
   createInitialWorkshopSession,
   participantIds,
 } from "./domain/workshop";
-import { aiProcessingDisclosure } from "./domain/security";
 import {
   createWorkshopRecord,
   createWorkshopRecordExport,
@@ -70,11 +69,25 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the AI processing and attachment redaction disclosure in the composer", async () => {
+  it("keeps chat actions compact so the message list owns the scroll area", async () => {
     render(<App />);
     await registerForWorkshopAccess();
 
-    expect(screen.getByText(aiProcessingDisclosure)).toBeInTheDocument();
+    const chat = screen.getByRole("complementary", { name: /workshop chat/i });
+    const composerActions = chat.querySelector(".composer-actions");
+
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
+    expect(composerActions).not.toBeNull();
+    expect(
+      within(composerActions as HTMLElement).getByRole("button", {
+        name: /attach files/i,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(composerActions as HTMLElement).getByRole("button", {
+        name: /send/i,
+      }),
+    ).toBeInTheDocument();
   });
 
   it("shows the human message immediately while the Codex turn is pending", async () => {
@@ -233,8 +246,11 @@ describe("App", () => {
       await screen.findAllByText(/requirement candidate/i),
     ).not.toHaveLength(0);
 
+    const prototypeTools = await openToolsPanel(/prototype/i);
     fireEvent.click(
-      screen.getByRole("button", { name: /generate prototype/i }),
+      within(prototypeTools).getByRole("button", {
+        name: /generate prototype/i,
+      }),
     );
 
     expect(
@@ -259,7 +275,9 @@ describe("App", () => {
       screen.getAllByText(/requirement change request:/i),
     ).not.toHaveLength(0);
 
-    fireEvent.click(screen.getByRole("button", { name: /regenerate/i }));
+    fireEvent.click(
+      within(prototypeTools).getByRole("button", { name: /regenerate/i }),
+    );
 
     expect(await screen.findByText(/^v2$/i)).toBeInTheDocument();
     expect(screen.getByText(/2\/2 covered/i)).toBeInTheDocument();
@@ -365,9 +383,13 @@ describe("App", () => {
     render(<App />);
     await registerForWorkshopAccess();
 
-    const organizationRegion = await screen.findByRole("region", {
-      name: /organization access/i,
-    });
+    const organizationTools = await openToolsPanel(/organization/i);
+    const organizationRegion = await within(organizationTools).findByRole(
+      "region",
+      {
+        name: /organization access/i,
+      },
+    );
     await waitFor(() =>
       expect(organizationRegion).toHaveTextContent(
         "Workshop Tester's organization",
@@ -483,13 +505,14 @@ describe("App", () => {
     await sendWorkshopMessage(
       "A release reviewer needs a system that should trace approved requirement evidence before signoff.",
     );
+    const requirementTools = await openToolsPanel(/requirements/i);
     fireEvent.click(
-      await screen.findByRole("button", {
+      await within(requirementTools).findByRole("button", {
         name: /approve requirement candidate/i,
       }),
     );
     fireEvent.click(
-      screen.getByRole("button", {
+      within(requirementTools).getByRole("button", {
         name: /confirm approve requirement candidate/i,
       }),
     );
@@ -651,37 +674,49 @@ describe("App", () => {
     await screen.findAllByRole("button", { name: /requirement candidate/i });
     await waitForTelemetryEvent("message.sent");
 
+    let requirementTools = await openToolsPanel(/requirements/i);
     fireEvent.click(
-      screen.getByRole("button", { name: /approve requirement candidate/i }),
+      within(requirementTools).getByRole("button", {
+        name: /approve requirement candidate/i,
+      }),
     );
     fireEvent.click(
-      screen.getByRole("button", {
+      within(requirementTools).getByRole("button", {
         name: /confirm approve requirement candidate/i,
       }),
     );
     await waitForTelemetryEvent("requirement.approved");
 
+    requirementTools = await openToolsPanel(/requirements/i);
     fireEvent.click(
-      screen.getByRole("button", { name: /baseline requirement candidate/i }),
+      within(requirementTools).getByRole("button", {
+        name: /baseline requirement candidate/i,
+      }),
     );
     fireEvent.click(
-      screen.getByRole("button", {
+      within(requirementTools).getByRole("button", {
         name: /confirm baseline requirement candidate/i,
       }),
     );
     await waitForTelemetryEvent("requirement.baselined");
 
+    const prototypeTelemetryTools = await openToolsPanel(/prototype/i);
     fireEvent.click(
-      screen.getByRole("button", { name: /generate prototype/i }),
+      within(prototypeTelemetryTools).getByRole("button", {
+        name: /generate prototype/i,
+      }),
     );
     await screen.findByTitle(/generated prototype preview/i);
     await waitForTelemetryEvent("prototype.generated");
 
+    requirementTools = await openToolsPanel(/requirements/i);
     fireEvent.click(
-      screen.getByRole("button", { name: /supersede requirement candidate/i }),
+      within(requirementTools).getByRole("button", {
+        name: /supersede requirement candidate/i,
+      }),
     );
     fireEvent.click(
-      screen.getByRole("button", {
+      within(requirementTools).getByRole("button", {
         name: /confirm supersede requirement candidate/i,
       }),
     );
@@ -693,13 +728,14 @@ describe("App", () => {
     await screen.findAllByRole("button", {
       name: /reject requirement candidate/i,
     });
+    requirementTools = await openToolsPanel(/requirements/i);
     fireEvent.click(
-      screen.getAllByRole("button", {
+      within(requirementTools).getAllByRole("button", {
         name: /reject requirement candidate/i,
       })[0],
     );
     fireEvent.click(
-      screen.getByRole("button", {
+      within(requirementTools).getByRole("button", {
         name: /confirm reject requirement candidate/i,
       }),
     );
@@ -823,6 +859,31 @@ describe("App", () => {
     expect(
       screen.getByLabelText(/workshop readiness \d+%/i),
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^tools$/i })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /^tools$/i }));
+    const toolsDrawer = screen.getByRole("complementary", {
+      name: /workshop tools/i,
+    });
+    expect(
+      within(toolsDrawer).getByRole("tablist", {
+        name: /workshop tool panels/i,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(toolsDrawer).getByRole("tab", { name: /prototype/i }),
+    ).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(
+      within(toolsDrawer).getByRole("button", {
+        name: /close workshop tools/i,
+      }),
+    );
+    expect(
+      screen.queryByRole("complementary", { name: /workshop tools/i }),
+    ).not.toBeInTheDocument();
 
     const processMode = screen.getByRole("button", { name: /process/i });
     const risksMode = screen.getByRole("button", { name: /risks/i });
@@ -852,6 +913,8 @@ describe("App", () => {
     ]);
     const appShellBlock = cssBlock(appCss, ".app-shell");
     const workspaceBlock = cssBlock(appCss, ".workspace-grid");
+    const toolsDrawerBlock = cssBlock(appCss, ".workshop-tools-drawer");
+    const toolsBodyBlock = cssBlock(appCss, ".workshop-tools-body");
     const messageListBlock = cssBlock(appCss, ".message-list");
     const participantsStripBlock = cssBlock(appCss, ".participants-strip");
 
@@ -864,6 +927,11 @@ describe("App", () => {
     expect(workspaceBlock).toContain("grid-template-columns:");
     expect(workspaceBlock).toMatch(/minmax\(0,\s*1(\.\d+)?fr\)/);
     expect(workspaceBlock).toContain("overflow: hidden");
+    expect(toolsDrawerBlock).toContain("position: fixed");
+    expect(toolsDrawerBlock).toContain(
+      "grid-template-rows: auto auto minmax(0, 1fr)",
+    );
+    expect(toolsBodyBlock).toContain("overflow-y: auto");
     expect(messageListBlock).toContain("overflow-y: auto");
     expect(participantsStripBlock).toContain("overflow-x: auto");
     expect(participantsStripBlock).toContain("overflow-y: hidden");
@@ -916,6 +984,19 @@ async function sendWorkshopMessage(message: string) {
   fireEvent.click(screen.getByRole("button", { name: /send/i }));
 }
 
+async function openToolsPanel(panelName: RegExp) {
+  const toolsButton = screen.getByRole("button", { name: /^tools$/i });
+  if (toolsButton.getAttribute("aria-expanded") !== "true") {
+    fireEvent.click(toolsButton);
+  }
+
+  const drawer = await screen.findByRole("complementary", {
+    name: /workshop tools/i,
+  });
+  fireEvent.click(within(drawer).getByRole("tab", { name: panelName }));
+  return drawer;
+}
+
 async function waitForTelemetryEvent(eventName: string) {
   await waitFor(() =>
     expect(
@@ -963,7 +1044,8 @@ function captureNextDownload() {
 }
 
 async function findConsolidationButtonByName(name: RegExp) {
-  const panel = await screen.findByRole("region", {
+  const tools = await openToolsPanel(/consolidation/i);
+  const panel = await within(tools).findByRole("region", {
     name: /requirement suggestions/i,
   });
 
