@@ -1953,7 +1953,7 @@ function WorkshopRoom() {
               type="file"
               aria-label="Attach workshop files"
               multiple
-              accept=".txt,.md,.csv,.json,.log,.docx,.xlsx,.xls,text/plain,text/csv,text/markdown,application/json,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              accept=".txt,.md,.csv,.json,.log,.pdf,.mcdx,.docx,.xlsx,.xls,text/plain,text/csv,text/markdown,application/json,application/pdf,application/octet-stream,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               onChange={(event) =>
                 void handleAttachmentFiles(event.target.files)
               }

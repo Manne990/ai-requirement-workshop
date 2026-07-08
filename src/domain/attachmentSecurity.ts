@@ -140,13 +140,16 @@ export const defaultAttachmentSecurityPolicy: AttachmentSecurityPolicy = {
     "docx",
     "json",
     "log",
+    "mcdx",
     "md",
+    "pdf",
     "txt",
     "xls",
     "xlsx",
   ],
   supportedMimeTypes: [
     "application/json",
+    "application/pdf",
     "application/vnd.ms-excel",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -163,7 +166,9 @@ const supportedMimeTypesByExtension: Record<string, string[]> = {
   ],
   json: ["application/json", "text/plain"],
   log: ["text/plain"],
+  mcdx: ["application/octet-stream"],
   md: ["text/markdown", "text/plain"],
+  pdf: ["application/pdf"],
   txt: ["text/plain"],
   xls: ["application/vnd.ms-excel"],
   xlsx: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
@@ -209,7 +214,7 @@ export function validateAttachmentUpload(
       reason: "unsupported-type",
       extension,
       message:
-        "Unsupported attachment type. Upload CSV, TXT, Markdown, JSON, DOCX, XLS, or XLSX files.",
+        "Unsupported attachment type. Upload CSV, TXT, Markdown, JSON, PDF, MCDX, DOCX, XLS, or XLSX files.",
     };
   }
 

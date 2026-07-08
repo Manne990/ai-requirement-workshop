@@ -60,6 +60,31 @@ describe("attachment security domain", () => {
     });
   });
 
+  it("allows PDF and Mathcad uploads without opening generic binary uploads", () => {
+    const pdf = validateAttachmentUpload({
+      name: "requirements.pdf",
+      mimeType: "application/pdf",
+      size: 1024,
+    });
+    const mathcad = validateAttachmentUpload({
+      name: "calculation.mcdx",
+      mimeType: "application/octet-stream",
+      size: 1024,
+    });
+    const genericBinary = validateAttachmentUpload({
+      name: "payload.bin",
+      mimeType: "application/octet-stream",
+      size: 1024,
+    });
+
+    expect(pdf).toMatchObject({ allowed: true, extension: "pdf" });
+    expect(mathcad).toMatchObject({ allowed: true, extension: "mcdx" });
+    expect(genericBinary).toMatchObject({
+      allowed: false,
+      reason: "unsupported-type",
+    });
+  });
+
   it("creates scoped production attachment metadata with provenance, storage, and redacted text", () => {
     const record = createProductionAttachmentRecord({
       draft: {
